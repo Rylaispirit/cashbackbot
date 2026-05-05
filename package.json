@@ -1,0 +1,51 @@
+{
+  "name": "cashbackbot",
+  "version": "0.1.0",
+  "description": "Telegram cashback bot - Accesstrade affiliate integration",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "postinstall": "prisma generate",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main",
+    "start:railway": "prisma migrate deploy && node dist/main",
+    "typecheck": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "simulate:postback": "ts-node -T scripts/simulate-postback.ts",
+    "smoke": "ts-node -T scripts/smoke-test.ts",
+    "test:at": "ts-node -T scripts/test-accesstrade.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/config": "^3.1.1",
+    "@nestjs/core": "^10.3.0",
+    "@nestjs/platform-express": "^10.3.0",
+    "@prisma/client": "^5.10.0",
+    "axios": "^1.6.7",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "dotenv": "^16.4.5",
+    "nestjs-telegraf": "^2.8.1",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.1",
+    "telegraf": "^4.15.6"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.3.0",
+    "@nestjs/schematics": "^10.1.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.0",
+    "prisma": "^5.10.0",
+    "ts-loader": "^9.5.1",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

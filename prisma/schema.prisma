@@ -1,0 +1,129 @@
+// Cashback bot — Prisma schema
+// DB: Supabase Postgres
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ===== User (Telegram) =====
+model User {
+  id             String   @id @default(cuid())
+  telegramId     BigInt   @unique
+  username       String?
+  firstName      String?
+  lastName       String?
+  // % cashback chia lại cho user (override default nếu cần)
+  commissionRate Int? // null => dùng env USER_COMMISSION_RATE
+  // Thông tin payout
+  bankName       String?
+  bankAccount    String?
+  bankHolder     String?
+  // Số dư đã được approved nhưng chưa payout (VND)
+  balanceAvail   Int      @default(0)
+  // Số dư đang pending (đơn chưa duyệt)
+  balancePending Int      @default(0)
+  // Tổng đã payout
+  totalPaidOut   Int      @default(0)
+  isBlocked      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  links        Link[]
+  transactions Transaction[]
+  payouts      Payout[]
+
+  @@map("users")
+}
+
+// ===== Link (mỗi lần user paste link) =====
+model Link {
+  id           String   @id @default(cuid())
+  // sub_id duy nhất gắn vào affiliate URL — dùng để map postback về đúng user/link
+  subId        String   @unique
+  userId       String
+  network      String   @default("accesstrade") // accesstrade, shopee_smartlink, ...
+  merchant     String // shopee, lazada, tiki, ...
+  originalUrl  String   @db.Text
+  affiliateUrl String   @db.Text
+  clickedAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("links")
+}
+
+// ===== Transaction (1 đơn hàng từ postback) =====
+enum TransactionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model Transaction {
+  id             String            @id @default(cuid())
+  // Order ID từ Accesstrade
+  orderId        String            @unique
+  subId          String
+  userId         String
+  linkId         String?
+  // Số tiền đơn hàng
+  saleAmount     Int
+  // Hoa hồng AT trả về (gross)
+  grossCommission Int
+  // Phần chia cho user
+  userShare      Int
+  // Phần bot giữ lại
+  ownerShare     Int
+  status         TransactionStatus @default(PENDING)
+  rawPayload     Json
+  approvedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  user User  @relation(fields: [userId], references: [id])
+  link Link? @relation(fields: [linkId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([subId])
+  @@map("transactions")
+}
+
+// ===== Payout (chi trả cho user) =====
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+}
+
+model Payout {
+  id          String       @id @default(cuid())
+  userId      String
+  amount      Int
+  status      PayoutStatus @default(PENDING)
+  bankName    String?
+  bankAccount String?
+  bankHolder  String?
+  note        String?
+  paidAt      DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("payouts")
+}

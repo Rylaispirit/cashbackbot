@@ -1,0 +1,195 @@
+# ChotDeal Bot — Setup Checklist
+
+## 0. Chuẩn bị
+
+- Node.js >= 20
+- npm
+- Telegram bot token từ `@BotFather`
+- Supabase project
+- Accesstrade publisher account
+
+```powershell
+cd D:\1_DU_AN\cashbackbot
+npm install
+```
+
+## 1. Cấu hình `.env`
+
+```powershell
+copy .env.example .env
+```
+
+Điền tối thiểu:
+
+```text
+TELEGRAM_BOT_TOKEN=<token>
+TELEGRAM_ADMIN_IDS=<telegram_id_admin>
+DATABASE_URL=<supabase_pooler_url>
+DIRECT_URL=<supabase_direct_url>
+ACCESSTRADE_PUB_ID=<publisher_id>
+ACCESSTRADE_POSTBACK_SECRET=<random_secret>
+```
+
+Nếu muốn deploy Railway webhook:
+
+```text
+NODE_ENV=production
+TELEGRAM_UPDATES_MODE=webhook
+PUBLIC_BASE_URL=https://<railway-service>.up.railway.app
+TELEGRAM_WEBHOOK_PATH=/telegram/webhook/<secret-path>
+TELEGRAM_WEBHOOK_SECRET_TOKEN=<random-secret>
+```
+
+## 2. Database
+
+```powershell
+npm run prisma:generate
+npm run prisma:migrate -- --name init
+```
+
+Kiểm tra nhanh:
+
+```powershell
+npm run smoke
+```
+
+## 3. BotFather metadata
+
+Làm theo [BOTFATHER_SETUP.md](/D:/1_DU_AN/cashbackbot/docs/BOTFATHER_SETUP.md).
+
+Quan trọng nhất là `/setcommands` để menu có đủ:
+
+- `start`
+- `balance`
+- `history`
+- `setbank`
+- `withdraw`
+- `help`
+- `cancel`
+
+## 4. Local run
+
+```powershell
+npm run start:dev
+```
+
+Kỳ vọng log:
+
+```text
+[Bootstrap] Cashback bot listening on port 3000
+[Bootstrap] Telegram updates mode: polling
+[Bootstrap] Telegram polling is active
+```
+
+Test:
+
+1. `/start`
+2. paste 1 link sản phẩm
+3. `/balance`
+4. `/history`
+5. `/setbank`
+6. `/withdraw`
+
+## 5. Accesstrade setup
+
+Điền thêm nếu có:
+
+```text
+ACCESSTRADE_API_TOKEN=<api_token>
+ACCESSTRADE_CAMPAIGN_ID_SHOPEE=
+ACCESSTRADE_CAMPAIGN_ID_LAZADA=
+ACCESSTRADE_CAMPAIGN_ID_TIKI=
+ACCESSTRADE_CAMPAIGN_ID_TIKTOK=
+```
+
+Ghi chú:
+
+- `GET /v1/me` và `GET /v1/transactions` đã được verify
+- create-link API chính thức hiện dùng `POST /v1/product_link/create`
+- nếu chưa có `campaign_id`, bot vẫn fallback về deeplink template nên không chặn launch
+
+## 6. Test postback local
+
+```powershell
+npm run simulate:postback -- --sub=tg<sub_id> --order=O1 --commission=20000 --status=pending
+npm run simulate:postback -- --sub=tg<sub_id> --order=O1 --commission=20000 --status=approved
+```
+
+Kỳ vọng:
+
+- `/balance` chuyển từ pending sang available
+- user nhận notification khi approved
+
+## 7. Deploy Railway
+
+Repo đã có `railway.json`, nên flow đơn giản là:
+
+1. Tạo Railway project/service
+2. Import repo
+3. Set env production
+4. Deploy
+
+Railway sẽ dùng:
+
+- build command: `npm run build`
+- start command: `npm run start:railway`
+- healthcheck path: `/api/health`
+
+Sau deploy, kiểm tra:
+
+```text
+GET https://<railway-service>.up.railway.app/
+GET https://<railway-service>.up.railway.app/api/health
+```
+
+Kỳ vọng log:
+
+```text
+[Bootstrap] Cashback bot listening on port <PORT>
+[Bootstrap] Telegram updates mode: webhook
+[Bootstrap] Telegram webhook URL: https://<railway-domain><path>
+[Bootstrap] Accesstrade postback URL: https://<railway-domain>/api/postback/accesstrade
+```
+
+## 8. Configure public callbacks
+
+Telegram webhook sẽ được app tự set khi boot bằng:
+
+```text
+https://<railway-service>.up.railway.app<TELEGRAM_WEBHOOK_PATH>
+```
+
+Accesstrade postback URL cần set thủ công trên dashboard:
+
+```text
+https://<railway-service>.up.railway.app/api/postback/accesstrade
+```
+
+## 9. Public simulator test
+
+```powershell
+npm run simulate:postback -- --endpoint=https://<railway-service>.up.railway.app/api/postback/accesstrade --sub=tg<sub_id> --order=RAILWAY001 --commission=20000 --status=approved
+```
+
+Test thêm admin flow:
+
+- `/admin_payouts`
+- `/admin_paid <id>`
+- `/admin_cancel <id>`
+
+## 10. Launch gate
+
+Chỉ public rộng sau khi có ít nhất 1 đơn thật từ Accesstrade xác nhận:
+
+- postback thật trả `200`
+- signature pass
+- transaction map đúng user
+- balance cập nhật đúng
+- notification hiển thị đúng
+
+## Troubleshooting
+
+- Bot không trả lời local: kiểm tra `TELEGRAM_UPDATES_MODE=polling`
+- Production không nhận Telegram update: kiểm tra `PUBLIC_BASE_URL`, `TELEGRAM_WEBHOOK_PATH`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`
+- Postback trả `401`: kiểm tra `ACCESSTRADE_POSTBACK_SECRET` và format signature
+- Railway healthcheck fail: mở `GET /api/health` trực tiếp để xác nhận app lên thành công

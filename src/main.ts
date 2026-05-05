@@ -55,15 +55,19 @@ async function bootstrap() {
     const webhookUrl = `${publicBaseUrl}${webhookPath}`;
     const postbackUrl = `${publicBaseUrl}/api/postback/accesstrade`;
 
-    let webhookHandler: TelegramWebhookHandler = async (
-      _req,
-      _res,
-      next,
-    ) => {
-      next?.();
-    };
+    let webhookHandler: TelegramWebhookHandler | null = null;
 
     app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.path !== webhookPath) {
+        next();
+        return;
+      }
+
+      if (!webhookHandler) {
+        res.status(503).json({ ok: false, error: 'telegram_webhook_not_ready' });
+        return;
+      }
+
       void Promise.resolve(webhookHandler(req, res, next)).catch(next);
     });
 

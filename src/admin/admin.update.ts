@@ -8,16 +8,6 @@ import { PayoutsService } from '../payouts/payouts.service';
 
 /**
  * Telegram commands cho admin. Tất cả đều check whitelist trước khi xử lý.
- *
- *   /admin               — help
- *   /admin_stats         — tổng quan
- *   /admin_payouts       — list payout pending
- *   /admin_paid <id>     — đánh dấu payout đã chuyển
- *   /admin_cancel <id>   — huỷ payout (hoàn balance)
- *   /admin_user <tgid>   — xem chi tiết 1 user
- *   /admin_block <tgid>  — block user
- *   /admin_unblock <tgid>
- *   /admin_recent        — 10 transactions gần nhất
  */
 @Update()
 export class AdminUpdate {
@@ -35,11 +25,11 @@ export class AdminUpdate {
     await ctx.reply(
       [
         '🛠 Admin commands:',
-        '/admin_stats — tổng quan',
-        '/admin_recent — 10 đơn gần nhất',
-        '/admin_payouts — list payout pending',
-        '/admin_paid <id> — mark payout đã chuyển',
-        '/admin_cancel <id> — huỷ payout',
+        '/admin_stats - tổng quan',
+        '/admin_recent - 10 đơn gần nhất',
+        '/admin_payouts - list payout pending',
+        '/admin_paid <id> - mark payout đã chuyển',
+        '/admin_cancel <id> - huỷ payout',
         '/admin_user <telegram_id>',
         '/admin_block <telegram_id>',
         '/admin_unblock <telegram_id>',
@@ -112,7 +102,9 @@ export class AdminUpdate {
     try {
       const fullId = await this.resolvePayoutId(id);
       const payout = await this.payouts.cancel(fullId, 'Cancelled by admin');
-      await ctx.reply(`✅ Đã huỷ payout ${payout.id.slice(0, 8)}, hoàn ${vnd(payout.amount)} về user.`);
+      await ctx.reply(
+        `✅ Đã huỷ payout ${payout.id.slice(0, 8)}, hoàn ${vnd(payout.amount)} về user.`,
+      );
     } catch (err) {
       await ctx.reply(`❌ ${(err as Error).message}`);
     }
@@ -191,16 +183,13 @@ export class AdminUpdate {
   private assertAdmin(ctx: Context): boolean {
     const id = ctx.from?.id;
     if (!id || !this.guard.isAdmin(id)) {
-      // Im lặng để không lộ command
       return false;
     }
     return true;
   }
 
   private async resolvePayoutId(idOrPrefix: string): Promise<string> {
-    // Nếu user gõ id đầy đủ, dùng luôn
     if (idOrPrefix.length >= 20) return idOrPrefix;
-    // Resolve theo prefix qua admin service (giản lược: trực tiếp query)
     const all = await this.payouts.listPending(100);
     const match = all.find((p) => p.id.startsWith(idOrPrefix));
     if (!match) throw new Error(`Không tìm thấy payout với prefix ${idOrPrefix}`);

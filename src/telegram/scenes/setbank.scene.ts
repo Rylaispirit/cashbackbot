@@ -16,7 +16,6 @@ interface BankWizardState {
 
 /**
  * Wizard 3 bước cho user nhập thông tin ngân hàng nhận tiền payout.
- * Vào scene này bằng `ctx.scene.enter(SETBANK_SCENE_ID)`.
  */
 @Wizard(SETBANK_SCENE_ID)
 export class SetBankScene {
@@ -55,7 +54,7 @@ export class SetBankScene {
   @WizardStep(3)
   async step3(@Ctx() ctx: WizardCtx, @Message('text') text: string) {
     if (!text || !/^[0-9]{6,20}$/.test(text.trim())) {
-      await ctx.reply('Số tài khoản chỉ chứa số (6–20 chữ số). Nhập lại nhé.');
+      await ctx.reply('Số tài khoản chỉ chứa số (6-20 chữ số). Nhập lại nhé.');
       return;
     }
     const state = ctx.wizard.state as BankWizardState;

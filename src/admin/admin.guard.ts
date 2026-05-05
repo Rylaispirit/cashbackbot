@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 /**
  * Whitelist admin theo Telegram user ID.
- * env TELEGRAM_ADMIN_IDS dạng "123456789,987654321"
+ * TELEGRAM_ADMIN_IDS có dạng "123456789,987654321".
  */
 @Injectable()
 export class AdminGuard {
@@ -20,7 +20,7 @@ export class AdminGuard {
         .map((s) => BigInt(s)),
     );
     if (this.adminIds.size === 0) {
-      this.logger.warn('Không có TELEGRAM_ADMIN_IDS — các lệnh /admin sẽ không khả dụng');
+      this.logger.warn('Không có TELEGRAM_ADMIN_IDS - các lệnh /admin sẽ không khả dụng');
     } else {
       this.logger.log(`Loaded ${this.adminIds.size} admin id(s)`);
     }

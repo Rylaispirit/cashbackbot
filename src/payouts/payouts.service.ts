@@ -100,7 +100,6 @@ export class PayoutsService {
       return updated;
     });
 
-    // Notify user — không await để tránh block caller
     this.notifications.notifyPayoutPaid(result.id).catch(() => {});
     return result;
   }

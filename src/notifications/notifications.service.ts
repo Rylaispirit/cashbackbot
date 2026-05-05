@@ -5,8 +5,8 @@ import { Telegraf, Context } from 'telegraf';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
- * Gửi thông báo từ bot đến user. Best-effort — nếu user đã block bot
- * hoặc lỗi network, ta nuốt error để không vỡ flow business chính.
+ * Gửi thông báo từ bot đến user. Best-effort: nếu user đã block bot
+ * hoặc lỗi network, bot chỉ log warning và không làm vỡ business flow.
  */
 @Injectable()
 export class NotificationsService {
@@ -17,9 +17,6 @@ export class NotificationsService {
     private readonly prisma: PrismaService,
   ) {}
 
-  /**
-   * Đơn hàng vừa được sàn duyệt → cashback chuyển từ pending sang available.
-   */
   async notifyTransactionApproved(transactionId: string): Promise<void> {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
@@ -39,9 +36,6 @@ export class NotificationsService {
     await this.send(Number(tx.user.telegramId), message);
   }
 
-  /**
-   * Đơn bị reject/cancel → trừ pending hoặc available của user.
-   */
   async notifyTransactionRejected(transactionId: string): Promise<void> {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
@@ -55,15 +49,12 @@ export class NotificationsService {
       `📦 Order: ${tx.orderId}`,
       `💸 Cashback ${vnd(tx.userShare)} đã bị huỷ.`,
       '',
-      'Lý do thường gặp: đơn bị huỷ/hoàn hàng, mua giá khuyến mãi không tính hoa hồng, hoặc cookie tracking không match. Đừng buồn — đơn sau sẽ tracking ổn hơn 💪',
+      'Lý do thường gặp: đơn bị huỷ/hoàn hàng, mã khuyến mãi không tính hoa hồng, hoặc cookie tracking không match. Đơn sau vẫn có thể tracking bình thường nhé.',
     ].join('\n');
 
     await this.send(Number(tx.user.telegramId), message);
   }
 
-  /**
-   * Admin đã chuyển khoản → user nhận tiền.
-   */
   async notifyPayoutPaid(payoutId: string): Promise<void> {
     const payout = await this.prisma.payout.findUnique({
       where: { id: payoutId },
@@ -87,9 +78,6 @@ export class NotificationsService {
     await this.send(Number(payout.user.telegramId), message);
   }
 
-  /**
-   * Admin huỷ payout → hoàn tiền lại cho user, báo họ biết.
-   */
   async notifyPayoutCancelled(payoutId: string): Promise<void> {
     const payout = await this.prisma.payout.findUnique({
       where: { id: payoutId },
@@ -103,7 +91,7 @@ export class NotificationsService {
       `💸 Số tiền: ${vnd(payout.amount)} đã được hoàn lại số dư.`,
       payout.note ? `📝 Lý do: ${payout.note}` : '',
       '',
-      'Vui lòng kiểm tra thông tin bank (gõ /setbank) hoặc liên hệ admin nếu cần.',
+      'Vui lòng kiểm tra thông tin bank bằng /setbank hoặc liên hệ admin nếu cần.',
     ]
       .filter(Boolean)
       .join('\n');
@@ -111,16 +99,12 @@ export class NotificationsService {
     await this.send(Number(payout.user.telegramId), message);
   }
 
-  /**
-   * Helper gửi message — nuốt error để không vỡ caller.
-   */
   private async send(chatId: number, text: string): Promise<void> {
     try {
       await this.bot.telegram.sendMessage(chatId, text, {
         link_preview_options: { is_disabled: true },
       });
     } catch (err) {
-      // User có thể đã block bot, hoặc bot bị remove. Log warn, đừng throw.
       this.logger.warn(
         `Send notification to chat=${chatId} failed: ${(err as Error).message}`,
       );

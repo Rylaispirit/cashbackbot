@@ -13,23 +13,23 @@ type Context = Scenes.SceneContext;
 
 const WELCOME_MESSAGE = `🎯 Chào mừng bạn đến với ChotDeal!
 
-Bot hoàn tiền (cashback) cho mọi đơn Shopee, Lazada, Tiki, TikTok Shop.
+Bot hoàn tiền cashback cho đơn Shopee, Lazada, Tiki, TikTok Shop.
 Sắp tới: Taobao, 1688 cho hàng order Trung Quốc.
 
 📌 Cách dùng:
 1. Copy link sản phẩm bất kỳ
 2. Paste vào đây cho bot
-3. Bot trả link cashback — mở link đó để mua
-4. Đơn được duyệt → tiền tự về ví trong bot
+3. Bot trả link cashback - mở link đó để mua
+4. Đơn được duyệt - tiền tự về ví trong bot
 
 💰 Bạn nhận lại tới 70% hoa hồng từ sàn.
 
 🎮 Lệnh hữu ích:
-/balance — xem số dư
-/history — lịch sử giao dịch
-/setbank — cài tài khoản nhận tiền
-/withdraw — yêu cầu rút tiền
-/help — xem lại hướng dẫn`;
+/balance - xem số dư
+/history - lịch sử giao dịch
+/setbank - cài tài khoản nhận tiền
+/withdraw - yêu cầu rút tiền
+/help - xem lại hướng dẫn`;
 
 @Update()
 export class TelegramUpdate {
@@ -81,7 +81,7 @@ export class TelegramUpdate {
         `⏳ Đang chờ duyệt: ${formatVnd(balance.pending)}`,
         `📤 Đã rút: ${formatVnd(balance.totalPaidOut)}`,
         '',
-        'ℹ️ Đơn cần 1.5–3 tháng để sàn xác nhận trước khi tiền chuyển sang trạng thái có thể rút.',
+        'ℹ️ Đơn cần 1.5-3 tháng để sàn xác nhận trước khi tiền chuyển sang trạng thái có thể rút.',
       ].join('\n'),
     );
   }
@@ -230,7 +230,7 @@ export class TelegramUpdate {
           '🔗 Link cashback của bạn:',
           link.affiliateUrl,
           '',
-          '⚠️ Mở link trên rồi mua hàng luôn trong session đó để bảo đảm bot tracking được. Đừng đóng tab giữa chừng.',
+          '⚠️ Mở link trên rồi mua hàng luôn trong session đó để đảm bảo bot tracking được. Đừng đóng tab giữa chừng.',
         ].join('\n'),
         { link_preview_options: { is_disabled: true } },
       );
@@ -239,7 +239,7 @@ export class TelegramUpdate {
         `createAffiliateLink failed: ${(err as Error).message}`,
         (err as Error).stack,
       );
-      await ctx.reply('Có lỗi tạo link. Thử lại sau hoặc inbox @admin nhé.');
+      await ctx.reply('Có lỗi tạo link. Thử lại sau hoặc inbox admin nhé.');
     }
   }
 }

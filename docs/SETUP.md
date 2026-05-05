@@ -35,8 +35,8 @@ Nếu muốn deploy Railway webhook:
 ```text
 NODE_ENV=production
 TELEGRAM_UPDATES_MODE=webhook
-PUBLIC_BASE_URL=https://<railway-service>.up.railway.app
-TELEGRAM_WEBHOOK_PATH=/telegram/webhook/<secret-path>
+PUBLIC_BASE_URL=https://cashbackbot-production.up.railway.app
+TELEGRAM_WEBHOOK_PATH=/telegram/webhook/chotdeal-prod-20260505
 TELEGRAM_WEBHOOK_SECRET_TOKEN=<random-secret>
 ```
 
@@ -138,8 +138,8 @@ Railway sẽ dùng:
 Sau deploy, kiểm tra:
 
 ```text
-GET https://<railway-service>.up.railway.app/
-GET https://<railway-service>.up.railway.app/api/health
+GET https://cashbackbot-production.up.railway.app/
+GET https://cashbackbot-production.up.railway.app/api/health
 ```
 
 Kỳ vọng log:
@@ -156,19 +156,19 @@ Kỳ vọng log:
 Telegram webhook sẽ được app tự set khi boot bằng:
 
 ```text
-https://<railway-service>.up.railway.app<TELEGRAM_WEBHOOK_PATH>
+https://cashbackbot-production.up.railway.app/telegram/webhook/chotdeal-prod-20260505
 ```
 
 Accesstrade postback URL cần set thủ công trên dashboard:
 
 ```text
-https://<railway-service>.up.railway.app/api/postback/accesstrade
+https://cashbackbot-production.up.railway.app/api/postback/accesstrade
 ```
 
 ## 9. Public simulator test
 
 ```powershell
-npm run simulate:postback -- --endpoint=https://<railway-service>.up.railway.app/api/postback/accesstrade --sub=tg<sub_id> --order=RAILWAY001 --commission=20000 --status=approved
+npm run simulate:postback -- --endpoint=https://cashbackbot-production.up.railway.app/api/postback/accesstrade --sub=tg<sub_id> --order=RAILWAY001 --commission=20000 --status=approved
 ```
 
 Test thêm admin flow:

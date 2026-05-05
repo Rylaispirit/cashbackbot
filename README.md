@@ -34,8 +34,8 @@ Sao chép `.env.example` thành `.env`, rồi điền tối thiểu:
 Biến production mới:
 
 - `TELEGRAM_UPDATES_MODE=polling|webhook`
-- `PUBLIC_BASE_URL=https://<railway-service>.up.railway.app`
-- `TELEGRAM_WEBHOOK_PATH=/telegram/webhook/<secret-path>`
+- `PUBLIC_BASE_URL=https://cashbackbot-production.up.railway.app`
+- `TELEGRAM_WEBHOOK_PATH=/telegram/webhook/chotdeal-prod-20260505`
 - `TELEGRAM_WEBHOOK_SECRET_TOKEN=<random-secret>`
 
 Ghi chú:
@@ -83,8 +83,8 @@ Repo đã có sẵn:
 2. Set các env production:
    - `NODE_ENV=production`
    - `TELEGRAM_UPDATES_MODE=webhook`
-   - `PUBLIC_BASE_URL=https://<railway-service>.up.railway.app`
-   - `TELEGRAM_WEBHOOK_PATH=/telegram/webhook/<secret-path>`
+   - `PUBLIC_BASE_URL=https://cashbackbot-production.up.railway.app`
+   - `TELEGRAM_WEBHOOK_PATH=/telegram/webhook/chotdeal-prod-20260505`
    - `TELEGRAM_WEBHOOK_SECRET_TOKEN=<random-secret>`
    - các biến DB / Telegram / Accesstrade còn lại
 3. Deploy
@@ -95,14 +95,14 @@ Repo đã có sẵn:
 5. Cấu hình Accesstrade postback:
 
 ```text
-https://<railway-service>.up.railway.app/api/postback/accesstrade
+https://cashbackbot-production.up.railway.app/api/postback/accesstrade
 ```
 
 6. Test public simulator:
 
 ```bash
 npm run simulate:postback -- \
-  --endpoint=https://<railway-service>.up.railway.app/api/postback/accesstrade \
+  --endpoint=https://cashbackbot-production.up.railway.app/api/postback/accesstrade \
   --sub=tg<sub_id> \
   --order=ORDER001 \
   --commission=20000 \

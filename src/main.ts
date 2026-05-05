@@ -85,11 +85,18 @@ async function bootstrap() {
     };
   }
 
-  await app.listen(port);
-  Logger.log(`Cashback bot listening on port ${port}`, BOOTSTRAP_LOGGER);
+  Logger.log(`Starting HTTP server on 0.0.0.0:${port}`, BOOTSTRAP_LOGGER);
+  await app.listen(port, '0.0.0.0');
+  Logger.log(`Cashback bot listening on 0.0.0.0:${port}`, BOOTSTRAP_LOGGER);
 
   if (afterListen) {
-    await afterListen();
+    void afterListen().catch((err) => {
+      Logger.error(
+        `Telegram webhook setup failed: ${(err as Error).message}`,
+        (err as Error).stack,
+        BOOTSTRAP_LOGGER,
+      );
+    });
     return;
   }
 

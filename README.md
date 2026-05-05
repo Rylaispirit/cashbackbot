@@ -76,6 +76,7 @@ Repo đã có sẵn:
 
 - `railway.json`
 - `npm run start:railway`
+- `npm run prisma:deploy` as Railway pre-deploy migration
 
 ### Suggested Railway flow
 

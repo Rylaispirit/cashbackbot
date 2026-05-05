@@ -5,6 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
+    "preDeployCommand": "npm run prisma:deploy",
     "startCommand": "npm run start:railway",
     "healthcheckPath": "/",
     "healthcheckTimeout": 300

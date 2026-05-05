@@ -132,8 +132,9 @@ Repo đã có `railway.json`, nên flow đơn giản là:
 Railway sẽ dùng:
 
 - build command: `npm run build`
+- pre-deploy command: `npm run prisma:deploy`
 - start command: `npm run start:railway`
-- healthcheck path: `/api/health`
+- healthcheck path: `/`
 
 Sau deploy, kiểm tra:
 

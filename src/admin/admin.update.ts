@@ -1,4 +1,3 @@
-import { Logger } from '@nestjs/common';
 import { Update, Command, Ctx } from 'nestjs-telegraf';
 import { Context } from 'telegraf';
 
@@ -6,13 +5,8 @@ import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
 import { PayoutsService } from '../payouts/payouts.service';
 
-/**
- * Telegram commands cho admin. Tất cả đều check whitelist trước khi xử lý.
- */
 @Update()
 export class AdminUpdate {
-  private readonly logger = new Logger(AdminUpdate.name);
-
   constructor(
     private readonly guard: AdminGuard,
     private readonly admin: AdminService,
@@ -26,6 +20,8 @@ export class AdminUpdate {
       [
         '🛠 Admin commands:',
         '/admin_stats - tổng quan',
+        '/admin_links - 10 link mới nhất',
+        '/admin_link <sub_id> - chi tiết 1 link',
         '/admin_recent - 10 đơn gần nhất',
         '/admin_payouts - list payout pending',
         '/admin_paid <id> - mark payout đã chuyển',
@@ -54,6 +50,88 @@ export class AdminUpdate {
         `Đã chia user: ${vnd(s.paidToUsers)}`,
         `Phần bot giữ: ${vnd(s.ownerRevenue)}`,
       ].join('\n'),
+    );
+  }
+
+  @Command('admin_links')
+  async onLinks(@Ctx() ctx: Context) {
+    if (!this.assertAdmin(ctx)) return;
+    const list = await this.admin.listRecentLinks(10);
+    if (list.length === 0) {
+      await ctx.reply('Chưa có link nào.');
+      return;
+    }
+
+    const lines = list.flatMap((link) => {
+      const tx = link.transactions[0];
+      const txText = tx
+        ? `${statusIcon(tx.status)} ${tx.orderId} | ${vnd(tx.userShare)}`
+        : 'chưa có đơn';
+      return [
+        `• ${formatDateTime(link.createdAt)} | ${link.merchant} | ${link.subId}`,
+        `  ${formatUser(link.user)} | tx:${link._count.transactions} | ${txText}`,
+      ];
+    });
+
+    await ctx.reply(
+      [
+        '🔗 10 link mới nhất',
+        '',
+        ...lines,
+        '',
+        'Xem chi tiết: /admin_link <sub_id>',
+      ].join('\n'),
+    );
+  }
+
+  @Command('admin_link')
+  async onLinkDetail(@Ctx() ctx: Context) {
+    if (!this.assertAdmin(ctx)) return;
+    const subId = parseArg(ctx);
+    if (!subId || subId.length < 6) {
+      await ctx.reply('Cú pháp: /admin_link <sub_id hoặc prefix>');
+      return;
+    }
+
+    const link = await this.admin.getLinkDetail(subId);
+    if (!link) {
+      await ctx.reply(`Không tìm thấy link với sub_id/prefix ${subId}`);
+      return;
+    }
+
+    const txLines =
+      link.transactions.length > 0
+        ? link.transactions.map(
+            (tx: {
+              status: string;
+              orderId: string;
+              grossCommission: number;
+              userShare: number;
+              createdAt: Date;
+            }) =>
+              `${statusIcon(tx.status)} ${tx.orderId} | gross ${vnd(tx.grossCommission)} | user ${vnd(tx.userShare)} | ${formatDateTime(tx.createdAt)}`,
+          )
+        : ['chưa có đơn/postback'];
+
+    await ctx.reply(
+      [
+        '🔎 Link detail',
+        '',
+        `sub_id: ${link.subId}`,
+        `merchant: ${link.merchant}`,
+        `user: ${formatUser(link.user)}`,
+        `created: ${formatDateTime(link.createdAt)}`,
+        '',
+        'Affiliate link:',
+        link.affiliateUrl,
+        '',
+        'Original link:',
+        truncate(link.originalUrl, 700),
+        '',
+        'Transactions:',
+        ...txLines,
+      ].join('\n'),
+      { link_preview_options: { is_disabled: true } },
     );
   }
 
@@ -206,4 +284,44 @@ function parseArg(ctx: Context): string | null {
 
 function vnd(n: number): string {
   return `${n.toLocaleString('vi-VN')}đ`;
+}
+
+function formatDateTime(d: Date): string {
+  return d.toLocaleString('vi-VN', {
+    timeZone: 'Asia/Bangkok',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatUser(user: {
+  telegramId: bigint;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+}): string {
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+  const username = user.username ? `@${user.username}` : name || '-';
+  return `tg:${user.telegramId} ${username}`;
+}
+
+function statusIcon(status: string): string {
+  switch (status) {
+    case 'PENDING':
+      return '⏳';
+    case 'APPROVED':
+      return '✅';
+    case 'REJECTED':
+      return '❌';
+    case 'CANCELLED':
+      return '🚫';
+    default:
+      return '•';
+  }
+}
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max)}...` : value;
 }

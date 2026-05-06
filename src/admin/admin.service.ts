@@ -59,6 +59,64 @@ export class AdminService {
     });
   }
 
+  async listRecentLinks(limit = 10) {
+    return this.prisma.link.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: {
+        user: {
+          select: {
+            telegramId: true,
+            username: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        _count: { select: { transactions: true } },
+        transactions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            orderId: true,
+            status: true,
+            userShare: true,
+            grossCommission: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+  }
+
+  async getLinkDetail(subIdOrPrefix: string) {
+    const include = {
+      user: {
+        select: {
+          telegramId: true,
+          username: true,
+          firstName: true,
+          lastName: true,
+        },
+      },
+      transactions: {
+        orderBy: { createdAt: 'desc' as const },
+        take: 10,
+      },
+    };
+
+    const exact = await this.prisma.link.findUnique({
+      where: { subId: subIdOrPrefix },
+      include,
+    });
+    if (exact) return exact;
+
+    return this.prisma.link.findFirst({
+      where: { subId: { startsWith: subIdOrPrefix } },
+      orderBy: { createdAt: 'desc' },
+      include,
+    });
+  }
+
   async blockUser(telegramId: bigint, blocked: boolean) {
     return this.prisma.user.update({
       where: { telegramId },

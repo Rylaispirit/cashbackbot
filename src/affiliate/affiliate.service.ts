@@ -145,8 +145,8 @@ export class AffiliateService {
         ? body.data[0]
         : body.data?.success_link?.[0]) ?? body;
 
-    // Prefer the canonical Accesstrade URL so users/admin can verify pub_id,
-    // campaign_id, and sub1 directly. Short links can hide tracking params.
-    return first?.aff_link ?? first?.short_link ?? null;
+    // Prefer the Accesstrade short URL for Telegram UX. The short link still
+    // redirects through the aff_link that carries campaign_id and sub1.
+    return first?.short_link ?? first?.aff_link ?? null;
   }
 }

@@ -106,6 +106,8 @@ Ghi chú:
 
 - `GET /v1/me` và `GET /v1/transactions` đã được verify
 - create-link API chính thức hiện dùng `POST /v1/product_link/create`
+- Bot chỉ mở cashback cho sàn có campaign ID verified. Hiện Shopee có campaign mặc định trong code.
+- Muốn bật Lazada, cần lấy đúng campaign ID Lazada Việt Nam trong tài khoản đối tác rồi điền `ACCESSTRADE_CAMPAIGN_ID_LAZADA` trên Railway.
 - nếu chưa có `campaign_id`, bot vẫn fallback về deeplink template nên không chặn launch
 
 ## 6. Test postback local

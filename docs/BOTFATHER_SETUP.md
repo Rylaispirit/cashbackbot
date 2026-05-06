@@ -11,7 +11,7 @@ ChotDeal — Hoàn tiền mua sắm
 ## 2. `/setdescription`
 
 ```text
-🎯 ChotDeal — Hoàn tiền tới 70% cho mọi đơn Shopee, Lazada, Tiki, TikTok Shop.
+🎯 ChotDeal — Bot cashback cho Shopee. Lazada, Tiki, TikTok Shop sẽ mở dần.
 
 Cách dùng:
 1. Copy link sản phẩm
@@ -23,7 +23,7 @@ Cách dùng:
 ## 3. `/setabouttext`
 
 ```text
-Bot hoàn tiền (cashback) cho Shopee, Lazada, Tiki, TikTok Shop.
+Bot hoàn tiền (cashback) cho Shopee. Lazada, Tiki, TikTok Shop sẽ mở dần.
 ```
 
 ## 4. `/setcommands`

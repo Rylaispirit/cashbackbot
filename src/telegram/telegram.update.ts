@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import { Update, Start, Help, Command, On, Ctx } from 'nestjs-telegraf';
 import { Scenes } from 'telegraf';
 
@@ -14,10 +14,12 @@ const ACCESSSTRADE_TRACKING_WAIT_HOURS = 72;
 const ACCESSSTRADE_TRACKING_WAIT_MS =
   ACCESSSTRADE_TRACKING_WAIT_HOURS * 60 * 60 * 1000;
 
-const WELCOME_MESSAGE = `🎯 Chào mừng bạn đến với ChotDeal!
+function buildWelcomeMessage(enabledMerchants: string[]): string {
+  const supported = enabledMerchants.join(', ') || 'Shopee';
+  return `🎯 Chào mừng bạn đến với ChotDeal!
 
-Bot hoàn tiền cashback cho đơn Shopee, Lazada, Tiki, TikTok Shop.
-Sắp tới: Taobao, 1688 cho hàng order Trung Quốc.
+Bot hoàn tiền cashback cho đơn ${supported}.
+Sắp tới: Lazada, Tiki, TikTok Shop, Taobao, 1688.
 
 📌 Cách dùng:
 1. Copy link sản phẩm bất kỳ
@@ -31,6 +33,7 @@ Sắp tới: Taobao, 1688 cho hàng order Trung Quốc.
 /setbank - cài tài khoản nhận tiền
 /withdraw - yêu cầu rút tiền
 /help - xem lại hướng dẫn`;
+}
 
 @Update()
 export class TelegramUpdate {
@@ -54,12 +57,16 @@ export class TelegramUpdate {
       firstName: from.first_name,
       lastName: from.last_name,
     });
-    await ctx.reply(WELCOME_MESSAGE);
+    await ctx.reply(
+      buildWelcomeMessage(this.affiliateService.getEnabledMerchantLabels()),
+    );
   }
 
   @Help()
   async onHelp(@Ctx() ctx: Context) {
-    await ctx.reply(WELCOME_MESSAGE);
+    await ctx.reply(
+      buildWelcomeMessage(this.affiliateService.getEnabledMerchantLabels()),
+    );
   }
 
   @Command('balance')
@@ -235,7 +242,7 @@ export class TelegramUpdate {
     const detected = extractFirstSupportedUrl(text);
     if (!detected) {
       await ctx.reply(
-        'Mình không tìm thấy link sản phẩm hợp lệ. ChotDeal đang hỗ trợ: Shopee, Lazada, Tiki, TikTok Shop.\n\nTaobao/1688 sẽ ra mắt sớm 🇨🇳',
+        `Mình không tìm thấy link sản phẩm hợp lệ. ChotDeal hiện đang hỗ trợ: ${this.affiliateService.getEnabledMerchantLabels().join(', ')}.\n\nLazada, Tiki, TikTok Shop, Taobao/1688 sẽ mở dần sau nhé.`,
       );
       return;
     }
@@ -271,6 +278,10 @@ export class TelegramUpdate {
         { link_preview_options: { is_disabled: true } },
       );
     } catch (err) {
+      if (err instanceof BadRequestException) {
+        await ctx.reply(err.message);
+        return;
+      }
       this.logger.error(
         `createAffiliateLink failed: ${(err as Error).message}`,
         (err as Error).stack,

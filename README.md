@@ -13,7 +13,7 @@ Bot Telegram nhận link sản phẩm, tạo link cashback qua Accesstrade, ghi 
 
 ## Current capabilities
 
-- Hỗ trợ Shopee, Lazada, Tiki, TikTok Shop
+- Hỗ trợ Shopee đã verify campaign; Lazada/Tiki/TikTok Shop sẽ tự bật khi có campaign ID tương ứng
 - `/start`, `/help`, `/balance`, `/history`, `/setbank`, `/withdraw`
 - Admin commands: `/admin_stats`, `/admin_recent`, `/admin_payouts`, `/admin_paid`, `/admin_cancel`, `/admin_user`, `/admin_block`, `/admin_unblock`
 - Tự notify khi đơn approved/rejected/cancelled
@@ -42,7 +42,7 @@ Ghi chú:
 
 - Local/dev mặc định dùng `polling`
 - `NODE_ENV=production` sẽ mặc định dùng `webhook` nếu bạn không set `TELEGRAM_UPDATES_MODE`
-- Nếu chưa có `ACCESSTRADE_CAMPAIGN_ID_*`, bot vẫn hoạt động nhờ fallback về deeplink template
+- Bot chỉ mở cashback cho sàn có campaign ID verified. Shopee có campaign mặc định; Lazada/Tiki/TikTok cần điền `ACCESSTRADE_CAMPAIGN_ID_*` trước khi public.
 
 ## Local development
 
@@ -56,7 +56,7 @@ npm run start:dev
 Bot sẽ chạy qua polling. Test nhanh:
 
 1. Nhắn `/start`
-2. Paste 1 link Shopee/Lazada/Tiki/TikTok Shop
+2. Paste 1 link Shopee
 3. Gõ `/balance`
 4. Gõ `/history`
 

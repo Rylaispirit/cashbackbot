@@ -17,6 +17,13 @@ const DEFAULT_CAMPAIGN_IDS: Partial<Record<Merchant, string>> = {
   shopee: '4751584435713464237',
 };
 
+const MERCHANT_LABELS: Record<Merchant, string> = {
+  shopee: 'Shopee',
+  lazada: 'Lazada',
+  tiki: 'Tiki',
+  tiktok_shop: 'TikTok Shop',
+};
+
 @Injectable()
 export class AffiliateService {
   private readonly logger = new Logger(AffiliateService.name);
@@ -30,7 +37,12 @@ export class AffiliateService {
     const merchant = detectMerchant(input.originalUrl);
     if (!merchant) {
       throw new BadRequestException(
-        'Link không được hỗ trợ. Bot đang hỗ trợ: Shopee, Lazada, Tiki, TikTok Shop.',
+        `Link không được hỗ trợ. ChotDeal hiện đang hỗ trợ: ${this.getEnabledMerchantLabels().join(', ')}.`,
+      );
+    }
+    if (!this.isMerchantEnabled(merchant)) {
+      throw new BadRequestException(
+        `${MERCHANT_LABELS[merchant]} đang chuẩn bị mở cashback. ChotDeal hiện đang hỗ trợ: ${this.getEnabledMerchantLabels().join(', ')}.`,
       );
     }
 
@@ -49,6 +61,12 @@ export class AffiliateService {
         affiliateUrl,
       },
     });
+  }
+
+  getEnabledMerchantLabels(): string[] {
+    return (Object.keys(MERCHANT_LABELS) as Merchant[])
+      .filter((merchant) => this.isMerchantEnabled(merchant))
+      .map((merchant) => MERCHANT_LABELS[merchant]);
   }
 
   private generateSubId(userId: string): string {
@@ -130,6 +148,10 @@ export class AffiliateService {
       DEFAULT_CAMPAIGN_IDS[merchant] ??
       null
     );
+  }
+
+  private isMerchantEnabled(merchant: Merchant): boolean {
+    return Boolean(this.getCampaignIdForMerchant(merchant));
   }
 
   private extractTrackingLink(data: unknown): string | null {

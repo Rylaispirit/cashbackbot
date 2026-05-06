@@ -37,7 +37,7 @@ async function bootstrap() {
     process.env.TELEGRAM_UPDATES_MODE,
     process.env.NODE_ENV,
   );
-  const port = parsePort(process.env.PORT, process.env.NODE_ENV);
+  const port = parsePort(process.env.PORT, updatesMode);
 
   let afterListen: (() => Promise<void>) | null = null;
 
@@ -122,8 +122,8 @@ function resolveTelegramUpdatesMode(
   );
 }
 
-function parsePort(rawPort: string | undefined, nodeEnv: string | undefined): number {
-  const defaultPort = nodeEnv === 'production' ? 8080 : 3000;
+function parsePort(rawPort: string | undefined, updatesMode: TelegramUpdatesMode): number {
+  const defaultPort = updatesMode === 'webhook' ? 8080 : 3000;
   const port = rawPort ? parseInt(rawPort, 10) : defaultPort;
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error(`Invalid PORT value: ${rawPort}`);

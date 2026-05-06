@@ -22,8 +22,6 @@ Sắp tới: Taobao, 1688 cho hàng order Trung Quốc.
 3. Bot trả link cashback - mở link đó để mua
 4. Đơn được duyệt - tiền tự về ví trong bot
 
-💰 Bạn nhận lại tới 70% hoa hồng từ sàn.
-
 🎮 Lệnh hữu ích:
 /balance - xem số dư
 /history - lịch sử giao dịch

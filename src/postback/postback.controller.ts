@@ -42,7 +42,7 @@ export class PostbackController {
 
   private async handle(payload: AccesstradePostbackDto, req: Request) {
     this.logger.log(
-      `Postback received: order=${payload.order_id} status=${payload.status} sub=${payload.aff_sub ?? payload.sub_id}`,
+      `Postback received: order=${payload.order_id} status=${payload.status} sub=${payload.aff_sub ?? payload.sub_id ?? payload.sub1}`,
     );
 
     const verified = this.postbackService.verifySignature(payload, req);

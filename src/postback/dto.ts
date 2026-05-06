@@ -19,6 +19,26 @@ export class AccesstradePostbackDto {
   @IsOptional()
   sub_id?: string;
 
+  @IsString()
+  @IsOptional()
+  sub1?: string;
+
+  @IsString()
+  @IsOptional()
+  sub2?: string;
+
+  @IsString()
+  @IsOptional()
+  sub3?: string;
+
+  @IsString()
+  @IsOptional()
+  sub4?: string;
+
+  @IsString()
+  @IsOptional()
+  sub5?: string;
+
   @IsNumberString()
   @IsOptional()
   commission?: string;

@@ -12,6 +12,11 @@ interface CreateAffiliateLinkInput {
   originalUrl: string;
 }
 
+const DEFAULT_CAMPAIGN_IDS: Partial<Record<Merchant, string>> = {
+  // Verified via /v1/campaigns: "Shopee Viet Nam Smartlink cho tat ca thiet bi".
+  shopee: '4751584435713464237',
+};
+
 @Injectable()
 export class AffiliateService {
   private readonly logger = new Logger(AffiliateService.name);
@@ -57,12 +62,16 @@ export class AffiliateService {
     if (!pubId) {
       throw new Error('ACCESSTRADE_PUB_ID chưa cấu hình trong env');
     }
+    const campaignId = this.getCampaignIdForMerchant(merchant);
     const template =
       this.config.get<string>('ACCESSTRADE_DEEPLINK_TEMPLATE') ??
-      'https://gj.accesstrade.vn/deep_link/{pub_id}?url={url}&aff_sub={sub_id}';
+      (campaignId
+        ? 'https://go.isclix.com/deep_link/{pub_id}/{campaign_id}?url={url}&sub1={sub_id}&utm_source={sub_id}'
+        : 'https://gj.accesstrade.vn/deep_link/{pub_id}?url={url}&aff_sub={sub_id}');
 
     return template
       .replace('{pub_id}', encodeURIComponent(pubId))
+      .replace('{campaign_id}', encodeURIComponent(campaignId ?? ''))
       .replace('{url}', encodeURIComponent(originalUrl))
       .replace('{sub_id}', encodeURIComponent(subId))
       .replace('{merchant}', encodeURIComponent(merchant));
@@ -97,12 +106,11 @@ export class AffiliateService {
         },
       );
 
-      const shortUrl: string | undefined =
-        res.data?.data?.success_link?.[0]?.short_link ??
-        res.data?.data?.success_link?.[0]?.aff_link ??
-        res.data?.data?.[0]?.short_link ??
-        res.data?.short_link;
-      return shortUrl ?? null;
+      const link = this.extractTrackingLink(res.data);
+      if (!link) {
+        this.logger.warn('AT API response did not include a tracking link, fallback to deeplink template');
+      }
+      return link;
     } catch (err) {
       this.logger.warn(`AT API failed, fallback to deeplink template: ${(err as Error).message}`);
       return null;
@@ -117,6 +125,28 @@ export class AffiliateService {
       tiktok_shop: 'ACCESSTRADE_CAMPAIGN_ID_TIKTOK',
     };
 
-    return this.config.get<string>(keyByMerchant[merchant]) ?? null;
+    return (
+      this.config.get<string>(keyByMerchant[merchant]) ??
+      DEFAULT_CAMPAIGN_IDS[merchant] ??
+      null
+    );
+  }
+
+  private extractTrackingLink(data: unknown): string | null {
+    const body = data as {
+      data?: {
+        success_link?: Array<{ aff_link?: string; short_link?: string }>;
+      } | Array<{ aff_link?: string; short_link?: string }>;
+      aff_link?: string;
+      short_link?: string;
+    };
+    const first =
+      (Array.isArray(body.data)
+        ? body.data[0]
+        : body.data?.success_link?.[0]) ?? body;
+
+    // Prefer the canonical Accesstrade URL so users/admin can verify pub_id,
+    // campaign_id, and sub1 directly. Short links can hide tracking params.
+    return first?.aff_link ?? first?.short_link ?? null;
   }
 }

@@ -33,7 +33,7 @@ export class PostbackService {
     }
     if (!payload.signature) return false;
 
-    const subId = payload.aff_sub ?? payload.sub_id ?? '';
+    const subId = getPostbackSubId(payload) ?? '';
     const expected = createHmac('sha256', secret)
       .update(`${payload.order_id}${subId}${payload.status}`)
       .digest('hex');
@@ -49,7 +49,7 @@ export class PostbackService {
   }
 
   async processPostback(payload: AccesstradePostbackDto) {
-    const subId = payload.aff_sub ?? payload.sub_id;
+    const subId = getPostbackSubId(payload);
     if (!subId) {
       this.logger.warn(`Postback missing sub_id: order=${payload.order_id}`);
       return;
@@ -208,4 +208,8 @@ function mapStatus(raw: string): TransactionStatus {
   if (s.includes('reject')) return TransactionStatus.REJECTED;
   if (s.includes('cancel')) return TransactionStatus.CANCELLED;
   return TransactionStatus.PENDING;
+}
+
+function getPostbackSubId(payload: AccesstradePostbackDto): string | undefined {
+  return payload.aff_sub ?? payload.sub_id ?? payload.sub1;
 }

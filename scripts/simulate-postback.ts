@@ -26,6 +26,7 @@ interface Args {
   status: string;
   endpoint: string;
   secret?: string;
+  subField: 'aff_sub' | 'sub_id' | 'sub1';
 }
 
 function parseArgs(): Args {
@@ -42,6 +43,7 @@ function parseArgs(): Args {
     status: args.status ?? 'pending',
     endpoint: args.endpoint ?? 'http://localhost:3000/api/postback/accesstrade',
     secret: args.secret ?? process.env.ACCESSTRADE_POSTBACK_SECRET,
+    subField: (args.subField ?? 'aff_sub') as Args['subField'],
   };
 }
 
@@ -81,12 +83,12 @@ async function main() {
   const args = parseArgs();
   const payload: Record<string, string> = {
     order_id: args.order,
-    aff_sub: args.sub,
     commission: args.commission,
     sale_amount: args.saleAmount,
     status: args.status,
     timestamp: String(Math.floor(Date.now() / 1000)),
   };
+  payload[args.subField] = args.sub;
 
   if (args.secret) {
     payload.signature = sign(args.order, args.sub, args.status, args.secret);

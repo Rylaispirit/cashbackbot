@@ -134,7 +134,7 @@ export class TelegramUpdate {
     }
 
     if (untrackedLinkCount > 0) {
-      lines.push('🔗 Link chờ Accesstrade ghi nhận:');
+      lines.push('🔗 Link chờ hệ thống Cashback ghi nhận:');
       const [link] = untrackedLinks;
       if (link) {
         const date = formatDate(link.createdAt);
@@ -148,7 +148,7 @@ export class TelegramUpdate {
       );
       lines.push('Nếu bạn không mua qua các link đó thì có thể bỏ qua mục này.');
       lines.push(
-        'Khi Accesstrade gửi đơn về, bot sẽ tự chuyển sang mục Cashback và hiển thị số tiền thật.',
+        'Khi hệ thống Cashback ghi nhận đơn, bot sẽ tự chuyển sang mục Cashback và hiển thị số tiền thật.',
       );
       lines.push('');
     }
@@ -261,9 +261,9 @@ export class TelegramUpdate {
           '',
           'Bạn cần mở đúng link vừa tạo ở trên để mua hàng thì bot mới tracking được cashback.',
           '',
-          '⏳ Lưu ý: Đơn hàng có thể mất vài phút đến 72h mới được Accesstrade ghi nhận và hiện trong /history.',
+          '⏳ Lưu ý: Đơn hàng có thể mất vài phút đến 72h mới được hệ thống Cashback ghi nhận và hiện trong /history.',
           '',
-          'Trong thời gian này bot chưa biết chính xác cashback, vì số tiền chỉ được tính khi Accesstrade gửi hoa hồng thực tế về hệ thống.',
+          'Trong thời gian này bot chưa biết chính xác cashback, vì số tiền chỉ được tính khi hệ thống Cashback có dữ liệu đơn hàng thực tế.',
           'Nếu sau 72h chưa thấy đơn, hãy gửi admin mã đơn + ảnh đơn hàng để kiểm tra.',
           '',
           '⚠️ Mở link trên rồi mua hàng luôn trong session đó để đảm bảo bot tracking được. Đừng đóng tab giữa chừng.',
@@ -296,7 +296,7 @@ function labelUntrackedLink(createdAt: Date): string {
   if (ageMs >= seventyTwoHoursMs) {
     return 'quá 72h chưa ghi nhận - gửi admin mã đơn + ảnh đơn để kiểm tra';
   }
-  return 'chờ Accesstrade ghi nhận, tối đa 72h';
+  return 'chờ hệ thống Cashback ghi nhận, tối đa 72h';
 }
 
 function labelMerchant(m: string): string {

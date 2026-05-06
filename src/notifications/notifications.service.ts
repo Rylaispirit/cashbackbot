@@ -25,12 +25,12 @@ export class NotificationsService {
     if (!tx) return;
 
     const message = [
-      '⏳ Accesstrade đã ghi nhận đơn hàng của bạn!',
+      '⏳ Hệ thống Cashback đã ghi nhận đơn hàng của bạn!',
       '',
       `📦 Order: ${tx.orderId}`,
       `💰 Cashback tạm tính: ${vnd(tx.userShare)} đang chờ sàn duyệt.`,
       '',
-      'Số tiền này chỉ là tạm tính theo hoa hồng Accesstrade gửi về. Khi sàn duyệt đơn, cashback sẽ chuyển sang số dư có thể rút.',
+      'Số tiền này chỉ là tạm tính theo dữ liệu hệ thống gửi về. Khi sàn duyệt đơn, cashback sẽ chuyển sang số dư có thể rút.',
       'Gõ /history để theo dõi trạng thái đơn.',
     ].join('\n');
 

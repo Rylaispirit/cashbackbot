@@ -97,12 +97,17 @@ export class TelegramUpdate {
       return;
     }
 
-    const [transactions, payouts] = await Promise.all([
+    const [transactions, payouts, untrackedLinks] = await Promise.all([
       this.usersService.getTransactionHistory(user.id, 10),
       this.usersService.getPayoutHistory(user.id, 5),
+      this.usersService.getUntrackedLinkHistory(user.id, 5),
     ]);
 
-    if (transactions.length === 0 && payouts.length === 0) {
+    if (
+      transactions.length === 0 &&
+      payouts.length === 0 &&
+      untrackedLinks.length === 0
+    ) {
       await ctx.reply(
         '📜 Chưa có giao dịch nào. Paste link sản phẩm vào đây để bắt đầu nhận cashback nhé!',
       );
@@ -120,6 +125,16 @@ export class TelegramUpdate {
         lines.push(
           `${status} ${date} | ${merchant} | ${formatVnd(tx.userShare)} | ${tx.orderId}`,
         );
+      }
+      lines.push('');
+    }
+
+    if (untrackedLinks.length > 0) {
+      lines.push('🔗 Link đang chờ ghi nhận:');
+      for (const link of untrackedLinks) {
+        const date = formatDate(link.createdAt);
+        const merchant = labelMerchant(link.merchant);
+        lines.push(`⏳ ${date} | ${merchant} | ${labelUntrackedLink(link.createdAt)}`);
       }
       lines.push('');
     }
@@ -230,6 +245,13 @@ export class TelegramUpdate {
           '🔗 Link cashback của bạn:',
           link.affiliateUrl,
           '',
+          'Bạn cần mở đúng link vừa tạo ở trên để mua hàng thì bot mới tracking được cashback.',
+          '',
+          '⏳ Lưu ý: Đơn hàng có thể mất vài phút đến 72h mới được Accesstrade ghi nhận và hiện trong /history.',
+          '',
+          'Trong thời gian này bot chưa biết chính xác cashback, vì số tiền chỉ được tính khi Accesstrade gửi hoa hồng thực tế về hệ thống.',
+          'Nếu sau 72h chưa thấy đơn, hãy gửi admin mã đơn + ảnh đơn hàng để kiểm tra.',
+          '',
           '⚠️ Mở link trên rồi mua hàng luôn trong session đó để đảm bảo bot tracking được. Đừng đóng tab giữa chừng.',
         ].join('\n'),
         { link_preview_options: { is_disabled: true } },
@@ -252,6 +274,15 @@ function formatDate(d: Date): string {
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   return `${dd}/${mm}`;
+}
+
+function labelUntrackedLink(createdAt: Date): string {
+  const ageMs = Date.now() - createdAt.getTime();
+  const seventyTwoHoursMs = 72 * 60 * 60 * 1000;
+  if (ageMs >= seventyTwoHoursMs) {
+    return 'quá 72h chưa ghi nhận - gửi admin mã đơn + ảnh đơn để kiểm tra';
+  }
+  return 'chờ Accesstrade ghi nhận, tối đa 72h';
 }
 
 function labelMerchant(m: string): string {

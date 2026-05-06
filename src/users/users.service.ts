@@ -75,6 +75,22 @@ export class UsersService {
     });
   }
 
+  async getUntrackedLinkHistory(userId: string, limit = 5) {
+    return this.prisma.link.findMany({
+      where: {
+        userId,
+        transactions: { none: {} },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        subId: true,
+        merchant: true,
+        createdAt: true,
+      },
+    });
+  }
+
   /**
    * Lấy lịch sử payout của user.
    */

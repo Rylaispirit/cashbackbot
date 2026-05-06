@@ -84,7 +84,7 @@ export class PostbackService {
         existing.status,
         status,
       );
-      // Gửi notify nếu status thay đổi sang APPROVED hoặc REJECTED
+      // Notify user only when Accesstrade changes the tracked order status.
       if (updated) await this.notifyTransition(existing.id, status);
       return;
     }
@@ -125,8 +125,10 @@ export class PostbackService {
       `Transaction created: order=${payload.order_id} user=${link.userId} status=${status} userShare=${userShare}`,
     );
 
-    // Notify lần đầu nếu đơn vào thẳng APPROVED hoặc REJECTED (không qua PENDING)
-    if (status === TransactionStatus.APPROVED) {
+    // Notify the first time Accesstrade sends this order to our system.
+    if (status === TransactionStatus.PENDING) {
+      this.notifications.notifyTransactionPending(created.id).catch(() => {});
+    } else if (status === TransactionStatus.APPROVED) {
       this.notifications.notifyTransactionApproved(created.id).catch(() => {});
     } else if (
       status === TransactionStatus.REJECTED ||
@@ -190,7 +192,9 @@ export class PostbackService {
   }
 
   private async notifyTransition(transactionId: string, to: TransactionStatus) {
-    if (to === TransactionStatus.APPROVED) {
+    if (to === TransactionStatus.PENDING) {
+      this.notifications.notifyTransactionPending(transactionId).catch(() => {});
+    } else if (to === TransactionStatus.APPROVED) {
       this.notifications.notifyTransactionApproved(transactionId).catch(() => {});
     } else if (
       to === TransactionStatus.REJECTED ||

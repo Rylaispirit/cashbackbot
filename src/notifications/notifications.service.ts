@@ -17,6 +17,26 @@ export class NotificationsService {
     private readonly prisma: PrismaService,
   ) {}
 
+  async notifyTransactionPending(transactionId: string): Promise<void> {
+    const tx = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      include: { user: true },
+    });
+    if (!tx) return;
+
+    const message = [
+      '⏳ Accesstrade đã ghi nhận đơn hàng của bạn!',
+      '',
+      `📦 Order: ${tx.orderId}`,
+      `💰 Cashback tạm tính: ${vnd(tx.userShare)} đang chờ sàn duyệt.`,
+      '',
+      'Số tiền này chỉ là tạm tính theo hoa hồng Accesstrade gửi về. Khi sàn duyệt đơn, cashback sẽ chuyển sang số dư có thể rút.',
+      'Gõ /history để theo dõi trạng thái đơn.',
+    ].join('\n');
+
+    await this.send(Number(tx.user.telegramId), message);
+  }
+
   async notifyTransactionApproved(transactionId: string): Promise<void> {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: transactionId },

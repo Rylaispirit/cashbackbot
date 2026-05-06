@@ -17,7 +17,9 @@
     "prisma:studio": "prisma studio",
     "simulate:postback": "ts-node -T scripts/simulate-postback.ts",
     "smoke": "ts-node -T scripts/smoke-test.ts",
-    "test:at": "ts-node -T scripts/test-accesstrade.ts"
+    "test:at": "ts-node -T scripts/test-accesstrade.ts",
+    "launch:check": "ts-node -T scripts/launch-readiness.ts",
+    "telegram:set-commands": "ts-node -T scripts/set-telegram-commands.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",

@@ -169,7 +169,7 @@ https://cashbackbot-production.up.railway.app/api/postback/accesstrade
 ## 9. Public simulator test
 
 ```powershell
-npm run simulate:postback -- --endpoint=https://cashbackbot-production.up.railway.app/api/postback/accesstrade --sub=tg<sub_id> --order=RAILWAY001 --commission=20000 --status=approved
+npm run simulate:postback -- --endpoint=https://cashbackbot-production.up.railway.app/api/postback/accesstrade --sub=tg<sub_id> --order=CHOTDEAL001 --commission=20000 --status=approved
 ```
 
 Test thêm admin flow:

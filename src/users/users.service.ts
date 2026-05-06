@@ -75,11 +75,12 @@ export class UsersService {
     });
   }
 
-  async getUntrackedLinkHistory(userId: string, limit = 5) {
+  async getUntrackedLinkHistory(userId: string, limit = 5, since?: Date) {
     return this.prisma.link.findMany({
       where: {
         userId,
         transactions: { none: {} },
+        ...(since ? { createdAt: { gte: since } } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -87,6 +88,16 @@ export class UsersService {
         subId: true,
         merchant: true,
         createdAt: true,
+      },
+    });
+  }
+
+  async countUntrackedLinks(userId: string, since?: Date) {
+    return this.prisma.link.count({
+      where: {
+        userId,
+        transactions: { none: {} },
+        ...(since ? { createdAt: { gte: since } } : {}),
       },
     });
   }

@@ -10,6 +10,9 @@ import { RateLimitService } from './rate-limit.service';
 import { SETBANK_SCENE_ID } from './scenes/setbank.scene';
 
 type Context = Scenes.SceneContext;
+const ACCESSSTRADE_TRACKING_WAIT_HOURS = 72;
+const ACCESSSTRADE_TRACKING_WAIT_MS =
+  ACCESSSTRADE_TRACKING_WAIT_HOURS * 60 * 60 * 1000;
 
 const WELCOME_MESSAGE = `🎯 Chào mừng bạn đến với ChotDeal!
 
@@ -95,16 +98,19 @@ export class TelegramUpdate {
       return;
     }
 
-    const [transactions, payouts, untrackedLinks] = await Promise.all([
-      this.usersService.getTransactionHistory(user.id, 10),
-      this.usersService.getPayoutHistory(user.id, 5),
-      this.usersService.getUntrackedLinkHistory(user.id, 5),
-    ]);
+    const untrackedSince = new Date(Date.now() - ACCESSSTRADE_TRACKING_WAIT_MS);
+    const [transactions, payouts, untrackedLinks, untrackedLinkCount] =
+      await Promise.all([
+        this.usersService.getTransactionHistory(user.id, 10),
+        this.usersService.getPayoutHistory(user.id, 5),
+        this.usersService.getUntrackedLinkHistory(user.id, 1, untrackedSince),
+        this.usersService.countUntrackedLinks(user.id, untrackedSince),
+      ]);
 
     if (
       transactions.length === 0 &&
       payouts.length === 0 &&
-      untrackedLinks.length === 0
+      untrackedLinkCount === 0
     ) {
       await ctx.reply(
         '📜 Chưa có giao dịch nào. Paste link sản phẩm vào đây để bắt đầu nhận cashback nhé!',
@@ -127,13 +133,23 @@ export class TelegramUpdate {
       lines.push('');
     }
 
-    if (untrackedLinks.length > 0) {
-      lines.push('🔗 Link đang chờ ghi nhận:');
-      for (const link of untrackedLinks) {
+    if (untrackedLinkCount > 0) {
+      lines.push('🔗 Link chờ Accesstrade ghi nhận:');
+      const [link] = untrackedLinks;
+      if (link) {
         const date = formatDate(link.createdAt);
         const merchant = labelMerchant(link.merchant);
-        lines.push(`⏳ ${date} | ${merchant} | ${labelUntrackedLink(link.createdAt)}`);
+        lines.push(
+          `⏳ Gần nhất: ${date} | ${merchant} | ${labelUntrackedLink(link.createdAt)}`,
+        );
       }
+      lines.push(
+        `Có ${untrackedLinkCount} link tạo trong 72h gần nhất chưa có đơn ghi nhận.`,
+      );
+      lines.push('Nếu bạn không mua qua các link đó thì có thể bỏ qua mục này.');
+      lines.push(
+        'Khi Accesstrade gửi đơn về, bot sẽ tự chuyển sang mục Cashback và hiển thị số tiền thật.',
+      );
       lines.push('');
     }
 

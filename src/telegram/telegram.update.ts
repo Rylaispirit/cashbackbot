@@ -166,7 +166,7 @@ export class TelegramUpdate {
         const date = formatDate(tx.createdAt);
         const status = labelStatus(tx.status);
         lines.push(
-          `${status} ${date} | ${merchant} | ${formatVnd(tx.userShare)} | ${tx.orderId}`,
+          `${status} ${date} | ${merchant} | ${formatVnd(tx.userShare)} | ${publicOrderId(tx)}`,
         );
       }
       lines.push('');
@@ -343,6 +343,13 @@ function labelUntrackedLink(createdAt: Date): string {
     return 'quá 72h chưa ghi nhận - gửi admin mã đơn + ảnh đơn để kiểm tra';
   }
   return 'chờ hệ thống Cashback ghi nhận, tối đa 72h';
+}
+
+function publicOrderId(tx: { orderId: string; rawPayload?: unknown }): string {
+  const raw = tx.rawPayload as { order_id?: unknown } | null | undefined;
+  return typeof raw?.order_id === 'string' && raw.order_id
+    ? raw.order_id
+    : tx.orderId;
 }
 
 function labelMerchant(m: string): string {

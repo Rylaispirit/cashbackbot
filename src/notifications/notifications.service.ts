@@ -27,7 +27,7 @@ export class NotificationsService {
     const message = [
       '⏳ Hệ thống Cashback đã ghi nhận đơn hàng của bạn!',
       '',
-      `📦 Order: ${tx.orderId}`,
+      `📦 Order: ${publicOrderId(tx)}`,
       `💰 Cashback tạm tính: ${vnd(tx.userShare)} đang chờ sàn duyệt.`,
       '',
       'Số tiền này chỉ là tạm tính theo dữ liệu hệ thống gửi về. Khi sàn duyệt đơn, cashback sẽ chuyển sang số dư có thể rút.',
@@ -47,7 +47,7 @@ export class NotificationsService {
     const message = [
       '✅ Đơn hàng đã được duyệt!',
       '',
-      `📦 Order: ${tx.orderId}`,
+      `📦 Order: ${publicOrderId(tx)}`,
       `💰 Cashback: ${vnd(tx.userShare)} đã sẵn sàng để rút.`,
       '',
       'Gõ /balance để xem số dư hoặc /withdraw để rút tiền.',
@@ -66,7 +66,7 @@ export class NotificationsService {
     const message = [
       '❌ Đơn hàng không được duyệt',
       '',
-      `📦 Order: ${tx.orderId}`,
+      `📦 Order: ${publicOrderId(tx)}`,
       `💸 Cashback ${vnd(tx.userShare)} đã bị huỷ.`,
       '',
       'Lý do thường gặp: đơn bị huỷ/hoàn hàng, mã khuyến mãi không tính hoa hồng, hoặc cookie tracking không match. Đơn sau vẫn có thể tracking bình thường nhé.',
@@ -134,4 +134,11 @@ export class NotificationsService {
 
 function vnd(n: number): string {
   return `${n.toLocaleString('vi-VN')}đ`;
+}
+
+function publicOrderId(tx: { orderId: string; rawPayload?: unknown }): string {
+  const raw = tx.rawPayload as { order_id?: unknown } | null | undefined;
+  return typeof raw?.order_id === 'string' && raw.order_id
+    ? raw.order_id
+    : tx.orderId;
 }

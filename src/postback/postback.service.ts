@@ -8,6 +8,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AccesstradePostbackDto } from './dto';
 
+interface NormalizedAccesstradePostback {
+  orderId: string;
+  displayOrderId: string;
+  subId: string;
+  status: TransactionStatus;
+  grossCommission: number;
+  saleAmount: number;
+  rawStatus: string;
+}
+
 @Injectable()
 export class PostbackService {
   private readonly logger = new Logger(PostbackService.name);
@@ -31,11 +41,15 @@ export class PostbackService {
       );
       return true;
     }
-    if (!payload.signature) return false;
+    if (!payload.signature) {
+      return this.isTrustedUnsignedAccesstradePayload(payload);
+    }
 
     const subId = getPostbackSubId(payload) ?? '';
+    const orderId = getPostbackOrderId(payload) ?? '';
+    const status = getPostbackStatusRaw(payload);
     const expected = createHmac('sha256', secret)
-      .update(`${payload.order_id}${subId}${payload.status}`)
+      .update(`${orderId}${subId}${status}`)
       .digest('hex');
 
     try {
@@ -49,69 +63,87 @@ export class PostbackService {
   }
 
   async processPostback(payload: AccesstradePostbackDto) {
-    const subId = getPostbackSubId(payload);
-    if (!subId) {
-      this.logger.warn(`Postback missing sub_id: order=${payload.order_id}`);
+    const normalized = normalizePostback(payload);
+    if (!normalized) {
+      this.logger.warn(
+        `Postback missing required fields: order=${getPostbackOrderId(payload) ?? '-'} sub=${getPostbackSubId(payload) ?? '-'}`,
+      );
       return;
     }
 
     const link = await this.prisma.link.findUnique({
-      where: { subId },
+      where: { subId: normalized.subId },
       include: { user: true },
     });
     if (!link) {
-      this.logger.warn(`Link not found for sub_id=${subId} order=${payload.order_id}`);
+      this.logger.warn(
+        `Link not found for sub_id=${normalized.subId} order=${normalized.orderId}`,
+      );
       return;
     }
-
-    const status = mapStatus(payload.status);
-    const grossCommission = parseInt(payload.commission ?? '0', 10);
-    const saleAmount = parseInt(payload.sale_amount ?? '0', 10);
 
     const userRate =
       link.user.commissionRate ??
       parseInt(this.config.get<string>('USER_COMMISSION_RATE', '70'), 10);
-    const userShare = Math.floor((grossCommission * userRate) / 100);
-    const ownerShare = grossCommission - userShare;
+    const userShare = Math.floor((normalized.grossCommission * userRate) / 100);
+    const ownerShare = normalized.grossCommission - userShare;
+
+    const existingAggregate =
+      normalized.displayOrderId !== normalized.orderId
+        ? await this.prisma.transaction.findUnique({
+            where: { orderId: normalized.displayOrderId },
+          })
+        : null;
+
+    if (existingAggregate) {
+      const updated = await this.handleStatusTransition(
+        existingAggregate.id,
+        existingAggregate.status,
+        normalized.status,
+      );
+      if (updated) await this.notifyTransition(existingAggregate.id, normalized.status);
+      return;
+    }
 
     const existing = await this.prisma.transaction.findUnique({
-      where: { orderId: payload.order_id },
+      where: { orderId: normalized.orderId },
     });
 
     if (existing) {
       const updated = await this.handleStatusTransition(
         existing.id,
         existing.status,
-        status,
+        normalized.status,
       );
       // Notify user only when Accesstrade changes the tracked order status.
-      if (updated) await this.notifyTransition(existing.id, status);
+      if (updated) await this.notifyTransition(existing.id, normalized.status);
       return;
     }
 
     const created = await this.prisma.$transaction(async (tx) => {
       const newTx = await tx.transaction.create({
         data: {
-          orderId: payload.order_id,
-          subId,
+          orderId: normalized.orderId,
+          subId: normalized.subId,
           userId: link.userId,
           linkId: link.id,
-          saleAmount,
-          grossCommission,
+          saleAmount: normalized.saleAmount,
+          grossCommission: normalized.grossCommission,
           userShare,
           ownerShare,
-          status,
+          status: normalized.status,
           rawPayload: payload as unknown as object,
-          approvedAt: status === TransactionStatus.APPROVED ? new Date() : null,
+          approvedAt:
+            normalized.status === TransactionStatus.APPROVED ? new Date() : null,
         },
       });
 
-      if (status === TransactionStatus.PENDING) {
+      if (normalized.status === TransactionStatus.PENDING) {
         await tx.user.update({
           where: { id: link.userId },
           data: { balancePending: { increment: userShare } },
         });
-      } else if (status === TransactionStatus.APPROVED) {
+      } else if (normalized.status === TransactionStatus.APPROVED) {
         await tx.user.update({
           where: { id: link.userId },
           data: { balanceAvail: { increment: userShare } },
@@ -122,20 +154,51 @@ export class PostbackService {
     });
 
     this.logger.log(
-      `Transaction created: order=${payload.order_id} user=${link.userId} status=${status} userShare=${userShare}`,
+      `Transaction created: order=${normalized.orderId} user=${link.userId} status=${normalized.status} userShare=${userShare}`,
     );
 
     // Notify the first time Accesstrade sends this order to our system.
-    if (status === TransactionStatus.PENDING) {
+    if (normalized.status === TransactionStatus.PENDING) {
       this.notifications.notifyTransactionPending(created.id).catch(() => {});
-    } else if (status === TransactionStatus.APPROVED) {
+    } else if (normalized.status === TransactionStatus.APPROVED) {
       this.notifications.notifyTransactionApproved(created.id).catch(() => {});
     } else if (
-      status === TransactionStatus.REJECTED ||
-      status === TransactionStatus.CANCELLED
+      normalized.status === TransactionStatus.REJECTED ||
+      normalized.status === TransactionStatus.CANCELLED
     ) {
       this.notifications.notifyTransactionRejected(created.id).catch(() => {});
     }
+  }
+
+  private isTrustedUnsignedAccesstradePayload(
+    payload: AccesstradePostbackDto,
+  ): boolean {
+    const allowUnsigned = this.config.get<string>(
+      'ACCESSTRADE_ALLOW_UNSIGNED_POSTBACK',
+      'true',
+    );
+    if (allowUnsigned.toLowerCase() === 'false') return false;
+
+    const normalized = normalizePostback(payload);
+    if (!normalized) return false;
+    if (!payload.transaction_id || !payload.campaign_id) return false;
+
+    const allowedCampaignIds = [
+      this.config.get<string>('ACCESSTRADE_CAMPAIGN_ID_SHOPEE'),
+      this.config.get<string>('ACCESSTRADE_CAMPAIGN_ID_LAZADA'),
+      this.config.get<string>('ACCESSTRADE_CAMPAIGN_ID_TIKI'),
+      this.config.get<string>('ACCESSTRADE_CAMPAIGN_ID_TIKTOK'),
+      // Verified Shopee Smartlink fallback used by production.
+      '4751584435713464237',
+    ].filter(Boolean);
+
+    const campaignOk = allowedCampaignIds.includes(payload.campaign_id);
+    if (!campaignOk) {
+      this.logger.warn(
+        `Unsigned postback rejected: unknown campaign_id=${payload.campaign_id}`,
+      );
+    }
+    return campaignOk;
   }
 
   /**
@@ -207,13 +270,56 @@ export class PostbackService {
 
 function mapStatus(raw: string): TransactionStatus {
   const s = raw.toLowerCase();
+  if (s === '1') return TransactionStatus.APPROVED;
+  if (s === '2') return TransactionStatus.REJECTED;
+  if (s === '0') return TransactionStatus.PENDING;
   if (s.includes('approve') || s === 'success' || s === 'confirmed')
     return TransactionStatus.APPROVED;
+  if (s.includes('new') || s.includes('pending')) return TransactionStatus.PENDING;
   if (s.includes('reject')) return TransactionStatus.REJECTED;
   if (s.includes('cancel')) return TransactionStatus.CANCELLED;
   return TransactionStatus.PENDING;
 }
 
 function getPostbackSubId(payload: AccesstradePostbackDto): string | undefined {
-  return payload.aff_sub ?? payload.sub_id ?? payload.sub1;
+  return payload.aff_sub ?? payload.sub_id ?? payload.sub1 ?? payload.utm_source;
+}
+
+function getPostbackOrderId(payload: AccesstradePostbackDto): string | undefined {
+  return payload.order_id;
+}
+
+function getPostbackStatusRaw(payload: AccesstradePostbackDto): string {
+  if (payload.is_confirmed === '1') return 'approved';
+  if (payload.status !== undefined && payload.status !== null) {
+    return String(payload.status);
+  }
+  return payload.is_confirmed ?? 'pending';
+}
+
+function parseMoney(raw: string | undefined): number {
+  if (!raw) return 0;
+  const n = Number(String(raw).replace(/[^\d.-]/g, ''));
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+function normalizePostback(
+  payload: AccesstradePostbackDto,
+): NormalizedAccesstradePostback | null {
+  const orderId = getPostbackOrderId(payload);
+  const subId = getPostbackSubId(payload);
+  if (!orderId || !subId) return null;
+
+  const rawStatus = getPostbackStatusRaw(payload);
+  return {
+    // Accesstrade can send multiple rows for one marketplace order. Use
+    // transaction_id as the unique DB orderId so bonus/product rows are not lost.
+    orderId: payload.transaction_id ?? orderId,
+    displayOrderId: orderId,
+    subId,
+    status: mapStatus(rawStatus),
+    rawStatus,
+    grossCommission: parseMoney(payload.commission ?? payload.reward),
+    saleAmount: parseMoney(payload.sale_amount ?? payload.product_price),
+  };
 }

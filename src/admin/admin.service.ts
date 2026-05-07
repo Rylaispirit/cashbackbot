@@ -14,7 +14,7 @@ export class AdminService {
       txPending,
       txApproved,
       payoutPending,
-      revenue,
+      userCashback,
     ] = await this.prisma.$transaction([
       this.prisma.user.count(),
       this.prisma.link.count(),
@@ -25,7 +25,7 @@ export class AdminService {
       }),
       this.prisma.transaction.aggregate({
         where: { status: TransactionStatus.APPROVED },
-        _sum: { ownerShare: true, grossCommission: true, userShare: true },
+        _sum: { userShare: true },
       }),
     ]);
 
@@ -35,9 +35,7 @@ export class AdminService {
       txPending,
       txApproved,
       payoutPending,
-      grossCommission: revenue._sum.grossCommission ?? 0,
-      ownerRevenue: revenue._sum.ownerShare ?? 0,
-      paidToUsers: revenue._sum.userShare ?? 0,
+      paidToUsers: userCashback._sum.userShare ?? 0,
     };
   }
 
@@ -80,7 +78,6 @@ export class AdminService {
             orderId: true,
             status: true,
             userShare: true,
-            grossCommission: true,
             createdAt: true,
           },
         },

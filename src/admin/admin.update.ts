@@ -38,7 +38,7 @@ export class AdminUpdate {
         '',
         '🇨🇳 Reconcile alibo (Taobao/1688):',
         '/admin_alibo_pending - link Taobao chưa có đơn',
-        '/admin_alibo_match <subId_prefix> <orderId> <gross> [sale] [status] - tạo đơn manual',
+        '/admin_alibo_match <subId_prefix> <orderId> <commission_report> [sale] [status] - tạo đơn manual',
       ].join('\n'),
     );
   }
@@ -56,9 +56,7 @@ export class AdminUpdate {
         `📦 Transactions: ${s.txApproved} approved / ${s.txPending} pending`,
         `💸 Payouts pending: ${s.payoutPending}`,
         '',
-        `Gross commission: ${vnd(s.grossCommission)}`,
-        `Đã chia user: ${vnd(s.paidToUsers)}`,
-        `Phần bot giữ: ${vnd(s.ownerRevenue)}`,
+        `Cashback user nhận: ${vnd(s.paidToUsers)}`,
       ].join('\n'),
     );
   }
@@ -115,11 +113,10 @@ export class AdminUpdate {
             (tx: {
               status: string;
               orderId: string;
-              grossCommission: number;
               userShare: number;
               createdAt: Date;
             }) =>
-              `${statusIcon(tx.status)} ${tx.orderId} | gross ${vnd(tx.grossCommission)} | user ${vnd(tx.userShare)} | ${formatDateTime(tx.createdAt)}`,
+              `${statusIcon(tx.status)} ${tx.orderId} | cashback ${vnd(tx.userShare)} | ${formatDateTime(tx.createdAt)}`,
           )
         : ['chưa có đơn/postback'];
 
@@ -263,7 +260,7 @@ export class AdminUpdate {
     }
     const lines = list.map(
       (t) =>
-        `• ${t.orderId} | ${t.status} | ${vnd(t.grossCommission)} | tg:${t.user.telegramId} (@${t.user.username ?? '-'})`,
+        `• ${t.orderId} | ${t.status} | cashback ${vnd(t.userShare)} | tg:${t.user.telegramId} (@${t.user.username ?? '-'})`,
     );
     await ctx.reply(['📦 Recent transactions:', '', ...lines].join('\n'));
   }
@@ -359,8 +356,7 @@ export class AdminUpdate {
               : '⊘ Transaction alibo đã tồn tại, không đổi trạng thái:',
           `• subId: ${subId}`,
           `• orderId: ${tx.orderId}`,
-          `• gross: ${vnd(tx.grossCommission)}`,
-          `• userShare: ${vnd(tx.userShare)} (rate ${userRate}%)`,
+          `• cashback user nhận: ${vnd(tx.userShare)}`,
           `• status: ${tx.status}`,
           '',
           tx.status === TransactionStatus.APPROVED

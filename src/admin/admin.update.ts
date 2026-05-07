@@ -1,9 +1,13 @@
 import { Update, Command, Ctx } from 'nestjs-telegraf';
 import { Context } from 'telegraf';
 
+import { TransactionStatus } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+
 import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
 import { PayoutsService } from '../payouts/payouts.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Update()
 export class AdminUpdate {
@@ -11,6 +15,8 @@ export class AdminUpdate {
     private readonly guard: AdminGuard,
     private readonly admin: AdminService,
     private readonly payouts: PayoutsService,
+    private readonly config: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   @Command('admin')
@@ -29,6 +35,10 @@ export class AdminUpdate {
         '/admin_user <telegram_id>',
         '/admin_block <telegram_id>',
         '/admin_unblock <telegram_id>',
+        '',
+        '🇨🇳 Reconcile alibo (Taobao/1688):',
+        '/admin_alibo_pending - link Taobao chưa có đơn',
+        '/admin_alibo_match <subId_prefix> <orderId> <gross> [sale] [status] - tạo đơn manual',
       ].join('\n'),
     );
   }
@@ -256,6 +266,131 @@ export class AdminUpdate {
         `• ${t.orderId} | ${t.status} | ${vnd(t.grossCommission)} | tg:${t.user.telegramId} (@${t.user.username ?? '-'})`,
     );
     await ctx.reply(['📦 Recent transactions:', '', ...lines].join('\n'));
+  }
+
+
+  @Command('admin_alibo_pending')
+  async onAliboPending(@Ctx() ctx: Context) {
+    if (!this.assertAdmin(ctx)) return;
+    const list = await this.admin.listAliboPendingLinks(30);
+    if (list.length === 0) {
+      await ctx.reply('Không có link Taobao/1688 nào đang chờ reconcile.');
+      return;
+    }
+    const lines = list.map((l) => {
+      const subPrefix = l.subId.slice(0, 12);
+      const date = new Date(l.createdAt).toLocaleDateString('vi-VN');
+      return `• ${subPrefix}.. | ${l.merchant} | ${date} | tg:${l.user.telegramId} (@${l.user.username ?? '-'})`;
+    });
+    await ctx.reply(
+      [
+        '🇨🇳 Alibo pending links (chưa có transaction):',
+        '',
+        ...lines,
+        '',
+        'Match thủ công bằng:',
+        '/admin_alibo_match <subId_prefix> <orderId> <commission_VND> [sale_VND] [pending|approved]',
+      ].join('\n'),
+    );
+  }
+
+  @Command('admin_alibo_match')
+  async onAliboMatch(@Ctx() ctx: Context) {
+    if (!this.assertAdmin(ctx)) return;
+    const msg = ctx.message as { text?: string } | undefined;
+    if (!msg?.text) return;
+    const parts = msg.text.split(/\s+/).slice(1);
+
+    if (parts.length < 3) {
+      await ctx.reply(
+        'Cú pháp: /admin_alibo_match <subId_prefix> <orderId> <commission> [sale] [status]\n\nVí dụ: /admin_alibo_match tgabc12 ALIBO123 50000 500000 pending',
+      );
+      return;
+    }
+
+    const [subPrefix, orderId, commissionRaw, saleRaw, statusRaw] = parts;
+    if (!subPrefix || !orderId || !commissionRaw) {
+      await ctx.reply('Thiếu tham số. Dùng /admin_alibo_match để xem cú pháp.');
+      return;
+    }
+    const commission = parseInt(commissionRaw, 10);
+    const sale = parseInt(saleRaw ?? '0', 10);
+    const statusStr = (statusRaw ?? 'pending').toLowerCase();
+    const status =
+      statusStr === 'approved'
+        ? TransactionStatus.APPROVED
+        : statusStr === 'rejected'
+          ? TransactionStatus.REJECTED
+          : TransactionStatus.PENDING;
+
+    if (Number.isNaN(commission) || commission <= 0) {
+      await ctx.reply('Commission phải là số nguyên dương (VND).');
+      return;
+    }
+
+    // Resolve subId từ prefix
+    const subId = await this.resolveAliboSubId(subPrefix);
+    if (!subId) {
+      await ctx.reply(`Không tìm thấy link alibo nào với subId prefix=${subPrefix}.`);
+      return;
+    }
+
+    const userRate = parseInt(this.config.get<string>('ALIBO_DEFAULT_USER_RATE', '60'), 10);
+    try {
+      const result = await this.admin.createManualAliboTransaction({
+        subId,
+        orderId,
+        grossCommission: commission,
+        saleAmount: sale,
+        status,
+        userRate,
+        note: `manual via admin ${ctx.from?.id ?? ''}`,
+      });
+      const tx = result.transaction;
+      if (result.action !== 'skipped') {
+        this.notifyTransaction(tx.id, tx.status);
+      }
+      await ctx.reply(
+        [
+          result.action === 'created'
+            ? '✅ Đã tạo transaction alibo manual:'
+            : result.action === 'updated'
+              ? '✅ Đã cập nhật trạng thái transaction alibo:'
+              : '⊘ Transaction alibo đã tồn tại, không đổi trạng thái:',
+          `• subId: ${subId}`,
+          `• orderId: ${tx.orderId}`,
+          `• gross: ${vnd(tx.grossCommission)}`,
+          `• userShare: ${vnd(tx.userShare)} (rate ${userRate}%)`,
+          `• status: ${tx.status}`,
+          '',
+          tx.status === TransactionStatus.APPROVED
+            ? 'User đã được cộng vào số dư available + nhận notify.'
+            : tx.status === TransactionStatus.PENDING
+              ? 'User đã được cộng vào pending balance + nhận notify.'
+              : 'Transaction đã chuyển sang trạng thái không được duyệt.',
+        ].join('\n'),
+      );
+    } catch (err) {
+      await ctx.reply(`❌ ${(err as Error).message}`);
+    }
+  }
+
+  private async resolveAliboSubId(prefix: string): Promise<string | null> {
+    const link = await this.admin.findAliboLinkBySubIdPrefix(prefix);
+    return link?.subId ?? null;
+  }
+
+  private notifyTransaction(transactionId: string, status: TransactionStatus): void {
+    if (status === TransactionStatus.PENDING) {
+      this.notifications.notifyTransactionPending(transactionId).catch(() => {});
+    } else if (status === TransactionStatus.APPROVED) {
+      this.notifications.notifyTransactionApproved(transactionId).catch(() => {});
+    } else if (
+      status === TransactionStatus.REJECTED ||
+      status === TransactionStatus.CANCELLED
+    ) {
+      this.notifications.notifyTransactionRejected(transactionId).catch(() => {});
+    }
   }
 
   private assertAdmin(ctx: Context): boolean {

@@ -19,7 +19,8 @@
     "smoke": "ts-node -T scripts/smoke-test.ts",
     "test:at": "ts-node -T scripts/test-accesstrade.ts",
     "launch:check": "ts-node -T scripts/launch-readiness.ts",
-    "telegram:set-commands": "ts-node -T scripts/set-telegram-commands.ts"
+    "telegram:set-commands": "ts-node -T scripts/set-telegram-commands.ts",
+    "reconcile:alibo": "ts-node -T scripts/reconcile-alibo-csv.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",

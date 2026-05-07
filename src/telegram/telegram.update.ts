@@ -13,13 +13,35 @@ type Context = Scenes.SceneContext;
 const ACCESSSTRADE_TRACKING_WAIT_HOURS = 72;
 const ACCESSSTRADE_TRACKING_WAIT_MS =
   ACCESSSTRADE_TRACKING_WAIT_HOURS * 60 * 60 * 1000;
+const ALL_MERCHANT_LABELS = [
+  'Shopee',
+  'Lazada',
+  'Tiki',
+  'TikTok Shop',
+  'Taobao',
+  'Tmall',
+  '1688',
+];
 
 function buildWelcomeMessage(enabledMerchants: string[]): string {
   const supported = enabledMerchants.join(', ') || 'Shopee';
+  const upcoming = ALL_MERCHANT_LABELS.filter(
+    (merchant) => !enabledMerchants.includes(merchant),
+  );
+  const chinaEnabled = ['Taobao', 'Tmall', '1688'].some((merchant) =>
+    enabledMerchants.includes(merchant),
+  );
+  const notes = [
+    upcoming.length > 0 ? `Sắp tới: ${upcoming.join(', ')}.` : '',
+    chinaEnabled
+      ? 'Lưu ý: hàng Trung Quốc (Taobao/Tmall/1688) cần đặt qua dịch vụ vận chuyển hộ.'
+      : '',
+  ].filter(Boolean);
+
   return `🎯 Chào mừng bạn đến với ChotDeal!
 
 Bot hoàn tiền cashback cho đơn ${supported}.
-Sắp tới: Lazada, Tiki, TikTok Shop, Taobao, 1688.
+${notes.join('\n')}
 
 📌 Cách dùng:
 1. Copy link sản phẩm bất kỳ
@@ -33,6 +55,16 @@ Sắp tới: Lazada, Tiki, TikTok Shop, Taobao, 1688.
 /setbank - cài tài khoản nhận tiền
 /withdraw - yêu cầu rút tiền
 /help - xem lại hướng dẫn`;
+}
+
+function buildUnsupportedLinkMessage(enabledMerchants: string[]): string {
+  const supported = enabledMerchants.join(', ') || 'Shopee';
+  const upcoming = ALL_MERCHANT_LABELS.filter(
+    (merchant) => !enabledMerchants.includes(merchant),
+  );
+  const upcomingText =
+    upcoming.length > 0 ? `\n\n${upcoming.join(', ')} sẽ mở dần sau nhé.` : '';
+  return `Mình không tìm thấy link sản phẩm hợp lệ. ChotDeal hiện đang hỗ trợ: ${supported}.${upcomingText}`;
 }
 
 @Update()
@@ -242,7 +274,9 @@ export class TelegramUpdate {
     const detected = extractFirstSupportedUrl(text);
     if (!detected) {
       await ctx.reply(
-        `Mình không tìm thấy link sản phẩm hợp lệ. ChotDeal hiện đang hỗ trợ: ${this.affiliateService.getEnabledMerchantLabels().join(', ')}.\n\nLazada, Tiki, TikTok Shop, Taobao/1688 sẽ mở dần sau nhé.`,
+        buildUnsupportedLinkMessage(
+          this.affiliateService.getEnabledMerchantLabels(),
+        ),
       );
       return;
     }
@@ -255,10 +289,11 @@ export class TelegramUpdate {
     });
 
     try {
-      const link = await this.affiliateService.createAffiliateLink({
+      const result = await this.affiliateService.createAffiliateLink({
         userId: user.id,
         originalUrl: detected.url,
       });
+      const link = result.link;
       await ctx.reply(
         [
           `🛒 Sàn: ${labelMerchant(detected.merchant)}`,
@@ -274,7 +309,7 @@ export class TelegramUpdate {
           'Nếu sau 72h chưa thấy đơn, hãy gửi admin mã đơn + ảnh đơn hàng để kiểm tra.',
           '',
           '⚠️ Mở link trên rồi mua hàng luôn trong session đó để đảm bảo bot tracking được. Đừng đóng tab giữa chừng.',
-        ].join('\n'),
+        ].join('\n') + (result.notice ? '\n\n' + result.notice : ''),
         { link_preview_options: { is_disabled: true } },
       );
     } catch (err) {
@@ -320,6 +355,12 @@ function labelMerchant(m: string): string {
       return 'Tiki';
     case 'tiktok_shop':
       return 'TikTok';
+    case 'taobao':
+      return 'Taobao';
+    case 'tmall':
+      return 'Tmall';
+    case 'alibaba_1688':
+      return '1688';
     default:
       return m;
   }

@@ -1,228 +1,252 @@
-# Alibo.vn Integration Runbook
+# Alibo Browser Automation Runbook
 
-Hướng dẫn cấu hình alibo.vn cho ChotDeal — từ lấy pub_id đến reconcile đơn hàng.
+ChotDeal tạo link Taobao/Tmall/1688 bằng Playwright, dùng session Alibo đã login sẵn. Bot không lưu password. Đơn Alibo vẫn đối soát bằng CSV hoặc admin command vì hiện chưa có postback/API đơn hàng ổn định.
 
----
-
-## Bước 1 — Lấy Master Ref (pub_id) từ alibo dashboard
-
-### 1.1. Đăng nhập
-
-Vào https://alibo.vn/login → đăng nhập tài khoản master ChotDeal.
-
-### 1.2. Tìm Pub ID / User ID
-
-3 vị trí khả dĩ:
-
-**A. Avatar góc phải → Profile / Tài khoản**
-- Tìm dòng "ID:", "User ID:", "Mã giới thiệu:" hoặc "Mã đại lý:"
-- Format thường là số (vd `123456`) hoặc chuỗi (vd `chotdeal_xyz`)
-
-**B. Trang "Mời bạn bè" / "Giới thiệu"**
-- alibo có chương trình thưởng giới thiệu — họ sẽ cấp mỗi user 1 referral code
-- URL referral kiểu: `https://alibo.vn/?ref=ABC123` → `ABC123` chính là pub_id
-
-**C. Trang "Link quảng cáo" / "Tạo link"**
-- Khi tạo 1 link quảng cáo, URL kết quả sẽ chứa pub_id
-
-### 1.3. Lưu lại
-
-Pub_id = giá trị copy được từ trên. Vd: `chotdeal_master_123` hoặc `654321`.
-
----
-
-## Bước 2 — Reverse-engineer URL pattern "Link quảng cáo"
-
-### 2.1. Mở tab DevTools
-
-Trên Chrome: F12 → Network tab → check "Preserve log".
-
-### 2.2. Tạo 1 link quảng cáo mẫu
-
-1. Trong dashboard alibo, tìm tính năng **"Link quảng cáo"** / **"Tạo link giới thiệu"**.
-2. Paste 1 link Taobao test (vd `https://item.taobao.com/item.htm?id=12345`).
-3. Click "Tạo link".
-
-### 2.3. Lấy 2 thông tin
-
-**A. URL kết quả** (cái user click vào sẽ ra alibo rồi redirect Taobao):
-```
-Vd: https://alibo.vn/r/abc123?u=https%3A%2F%2Fitem.taobao.com%2Fitem.htm%3Fid%3D12345
-hoặc: https://shorten.alibo.vn/xyz789
-hoặc: https://m.tb.cn/h.xxx?sm=ABCXYZ
-```
-
-**B. Network request** (xem DevTools Network tab):
-- Tìm request POST vừa thực hiện
-- Copy: URL endpoint, headers (Authorization/Cookie), body
-- Nếu thấy endpoint kiểu `https://alibo.vn/api/...` → có thể auto hoá sau (Phase A2)
-
-### 2.4. Phân tích pattern
-
-Có 3 trường hợp:
-
-#### Case 1: URL có đầy đủ `pub_id` + `original_url` ➡️ TỐT NHẤT
-```
-https://alibo.vn/r/{pub_id}?u={taobao_url}
-                 ^master_ref     ^url
-```
-→ Bot wrap được mọi link Taobao của user mà không cần gọi API.
-
-Set trong `.env`:
-```env
-ALIBO_LINK_TEMPLATE=https://alibo.vn/r/{master_ref}?u={url}
-```
-
-#### Case 2: URL chỉ có `pub_id`, không nhận URL gốc ➡️ KHÔNG WORK
-```
-https://alibo.vn/r/abc123
-```
-→ Pattern này chỉ trỏ về trang cá nhân alibo — không track được sản phẩm cụ thể.
-→ Cần Phase A2: dùng Puppeteer headless tự động tạo link cho từng product.
-
-#### Case 3: URL có `pub_id` + custom `sub_id` slot ➡️ TỐT NHẤT (xa)
-```
-https://alibo.vn/r/abc123?u={taobao_url}&utm_source={SUB_ID}
-                                          ^^^^^^^^^^^^^^^^^^^^
-                                          alibo support pass-through
-```
-→ Mỗi user click có sub_id riêng, alibo report sẽ kèm sub_id → reconcile 100% tự động.
-
-Set trong `.env`:
-```env
-ALIBO_LINK_TEMPLATE=https://alibo.vn/r/{master_ref}?u={url}&utm_source={sub_id}
-```
-
-→ **Test xem alibo có support `utm_source` / `sub_id` / `aff_sub` không** bằng cách thêm `&utm_source=test123` vào URL → click → đặt 1 đơn nhỏ → check report alibo có thấy `test123` không.
-
----
-
-## Bước 3 — Cấu hình `.env` (local + Railway)
-
-### 3.1. Local `.env`
+## 1. Cấu hình bắt buộc
 
 ```env
-# ===== Alibo.vn (Taobao/Tmall/1688) =====
-ALIBO_MASTER_REF=<pub_id_từ_bước_1>
-ALIBO_LINK_TEMPLATE=<template_từ_bước_2>
-# vd: ALIBO_LINK_TEMPLATE=https://alibo.vn/r/{master_ref}?u={url}&utm_source={sub_id}
+ALIBO_MASTER_REF=18935
+ALIBO_AUTOMATION_MODE=browser
+ALIBO_LINK_TYPE=discount
+ALIBO_LINK_CREATOR_URL=<URL trang tạo link chiết khấu trong dashboard Alibo>
+ALIBO_STORAGE_STATE_BASE64=<base64 từ script capture session>
+ALIBO_BROWSER_TIMEOUT_MS=45000
+ALIBO_BROWSER_RESTART_EVERY=100
 ALIBO_DEFAULT_USER_RATE=60
 ```
 
-### 3.2. Railway production
+`ALIBO_LINK_TEMPLATE` chỉ là fallback cũ. Khi `ALIBO_AUTOMATION_MODE=browser`, bot không dùng template.
 
-Vào Railway dashboard → ChotDeal project → Variables → Add:
-- `ALIBO_MASTER_REF` = same as local
-- `ALIBO_LINK_TEMPLATE` = same as local
-- `ALIBO_DEFAULT_USER_RATE` = `60`
+## 2. Lấy URL trang tạo link chiết khấu
 
-Railway sẽ tự redeploy.
+1. Login [Alibo](https://alibo.vn).
+2. Vào trang/tính năng tạo link Taobao.
+3. Chọn đúng loại `link chiết khấu`.
+4. Copy URL trên thanh địa chỉ vào `ALIBO_LINK_CREATOR_URL`.
 
----
+Nếu có nhiều tab như `link quảng cáo` và `link chiết khấu`, hãy copy URL sau khi đã mở tab `link chiết khấu`.
 
-## Bước 4 — Test E2E ở local
+## 3. Capture session local
 
 ```powershell
 cd D:\1_DU_AN\cashbackbot
-npm run start:dev
-
-# Trên Telegram, paste 1 link Taobao bất kỳ
-# Vd: https://item.taobao.com/item.htm?id=666555444
-# Bot phải trả: https://alibo.vn/r/<your_master_ref>?u=...
-
-# Click vào link bot vừa trả → phải redirect tới Taobao đúng sản phẩm
-# Nếu cookie tracking OK, đặt 1 đơn nhỏ qua dịch vụ vận chuyển hộ
-
-# Check Telegram: /history → phải thấy "Link chờ ghi nhận: Taobao"
+npm run alibo:capture-session
 ```
 
----
+Browser sẽ mở ra. Bạn login Alibo thủ công, vào đúng trang tạo link chiết khấu, rồi quay lại terminal nhấn Enter.
 
-## Bước 5 — Reconcile khi alibo đã ghi nhận đơn
+Script sẽ in ra:
 
-### 5.1. Manual command (1 đơn)
-
+```env
+ALIBO_STORAGE_STATE_BASE64=...
 ```
-/admin_alibo_pending
-```
-Bot list ra link Taobao chưa có transaction.
 
-```
-/admin_alibo_match tg<sub_prefix> ALIBO_ORDER_ID 50000 500000 pending
-```
-- `tg<sub_prefix>`: 8-12 ký tự đầu của subId (lấy từ output trên)
-- `ALIBO_ORDER_ID`: mã đơn lấy từ alibo dashboard
-- `50000`: commission gross VND (alibo trả về)
-- `500000`: sale amount (giá đơn)
-- `pending`: status (`pending`/`approved`/`rejected`)
+Copy giá trị này vào Railway Variables. File session local được lưu trong `.secrets/` và đã được `.gitignore`, không commit lên Git.
 
-Khi alibo confirm đơn (sau 7-30 ngày), chạy lại với cùng `ALIBO_ORDER_ID` nhưng status = `approved`.
-Bot sẽ tự chuyển balance từ pending sang available và gửi notify cho user.
-
-### 5.2. Batch via CSV (nhiều đơn)
-
-Khi alibo cho export CSV report (thường là tab "Đơn hàng" / "Báo cáo" → nút "Export"):
+## 4. Test automation trước khi public
 
 ```powershell
-# Save file CSV vào D:\1_DU_AN\cashbackbot\data\alibo-report-2026-05.csv
-npm run reconcile:alibo -- --file=data/alibo-report-2026-05.csv --status=pending
+npm run alibo:test-browser -- --url=https://item.taobao.com/item.htm?id=123456789
 ```
 
-Script sẽ:
-1. Đọc CSV
-2. Với mỗi row, parse `taobao_item_id`, `commission`, `order_id`, `click_time`
-3. Match với Link DB theo `sub_id`, hoặc `item_id` + thời gian click trong cửa sổ ±48h
-4. Tạo transaction mới, hoặc update status nếu order đã tồn tại
-5. In report: created / updated / unmatched / skipped no-change
+Kỳ vọng output là link dạng `https://s.click.taobao.com/...`, `https://m.tb.cn/...` hoặc link rút gọn hợp lệ mà Alibo tạo ra.
 
-> Format CSV cần map cụ thể với header alibo export — bạn paste 1 file mẫu (5 dòng đầu) cho mình → mình adjust parser.
+Nếu lỗi `session_expired`, chạy lại `npm run alibo:capture-session` rồi cập nhật Railway env.
 
----
+## 5. Bật Railway
 
-## Bước 6 — Update BotFather: thêm `/setbank` info Trung Quốc nếu cần
+Thêm/cập nhật các biến trên Railway:
 
-Nếu sau test thấy luồng OK, update Telegram bot description bằng `@BotFather`:
-
-```
-/setdescription → ChotDeal:
-🎯 ChotDeal - Bot cashback cho Shopee và hàng Trung Quốc.
-🇨🇳 Taobao, Tmall, 1688 cần dịch vụ vận chuyển hộ.
+```env
+ALIBO_MASTER_REF=18935
+ALIBO_AUTOMATION_MODE=browser
+ALIBO_LINK_TYPE=discount
+ALIBO_LINK_CREATOR_URL=<URL thật>
+ALIBO_STORAGE_STATE_BASE64=<base64 thật>
+ALIBO_BROWSER_TIMEOUT_MS=45000
+ALIBO_BROWSER_RESTART_EVERY=100
+ALIBO_DEFAULT_USER_RATE=60
 ```
 
----
+Railway sẽ redeploy. Sau deploy, test:
 
-## Phase A2 (sau khi A1 ổn) — Tự động hóa
+```text
+/start
+paste link Taobao/Tmall/1688
+```
 
-Khi đã có >50 đơn alibo reconcile thủ công và bạn muốn auto:
+Bot phải nhắn đang tạo link, sau đó trả link chiết khấu.
 
-### Option Puppeteer headless
+Runtime safeguard đã có trong code:
 
-Thêm script `src/affiliate/alibo-puppeteer.service.ts`:
-- Login alibo bằng cookie/session
-- Navigate đến trang "Tạo link"
-- Fill input Taobao URL
-- Click "Tạo"
-- Extract URL kết quả
+- Browser automation chạy tuần tự FIFO để tránh nhiều Chromium cùng lúc làm Railway Hobby OOM.
+- Một Chromium instance được dùng lại, mỗi request tạo browser context riêng.
+- Chromium tự restart sau `ALIBO_BROWSER_RESTART_EVERY` request.
+- Log Railway có dòng `alibo browser createLink: result=ok|fail ... ms=... queueMs=...`.
+- Nếu session hết hạn hoặc thiếu config, bot gửi alert một lần tới admin đầu tiên trong `TELEGRAM_ADMIN_IDS`.
 
-→ Chậm hơn (1-3s/link) nhưng tránh manual hoàn toàn.
+## 6. Reconcile đơn Alibo
 
-### Option scrape report endpoint
+Manual một đơn:
 
-Nếu Bước 2.3 phát hiện endpoint `https://alibo.vn/api/orders` (hoặc tương tự):
-- Bot poll endpoint mỗi 1h
-- Auto match với Links → tạo Transactions
-- Notify user khi có cashback mới
+```text
+/admin_alibo_pending
+/admin_alibo_match <sub_id_prefix> <ALIBO_ORDER_ID> <commission_vnd> <sale_amount_vnd> pending
+```
 
-→ Cleanest nhưng phụ thuộc alibo không thay đổi API.
+CSV nhiều đơn:
 
----
+```powershell
+npm run reconcile:alibo -- --file=data/alibo-report.csv --dry
+npm run reconcile:alibo -- --file=data/alibo-report.csv --status=pending
+```
 
-## Troubleshooting
+Khi Alibo xác nhận đơn, chạy lại với `--status=approved` hoặc dùng admin command để chuyển trạng thái.
 
-| Triệu chứng | Nguyên nhân | Fix |
-|---|---|---|
-| Bot trả "Cashback Taobao chưa cấu hình" | Thiếu `ALIBO_MASTER_REF` | Fill env, restart bot |
-| Click link bot trả về 404 | Template URL sai | Test pattern lại bằng tab Network |
-| Click link redirect Taobao OK nhưng alibo không ghi đơn | Tracking bị mất | Cookie alibo bị clear giữa chừng — user cần extension/app alibo |
-| `/admin_alibo_match` báo "không tìm thấy subId" | Sub prefix quá ngắn / sai | Dùng `/admin_alibo_pending` xem prefix đúng |
-| `/admin_alibo_match` báo "order đã tồn tại nhưng thuộc subId khác" | CSV/admin đang match sai link | Kiểm tra lại `/admin_link <subId>` và order trên dashboard |
+## 7. Troubleshooting nhanh
+
+| Lỗi | Cách xử lý |
+|---|---|
+| Bot báo Taobao chưa mở public | Thiếu `ALIBO_LINK_CREATOR_URL` hoặc `ALIBO_STORAGE_STATE_BASE64` |
+| `session_expired` | Capture session lại và cập nhật Railway env |
+| `input_not_found` | URL creator chưa đúng trang tạo link, hoặc UI Alibo đổi |
+| `result_not_found` | Alibo không trả link trong 45s, thử lại hoặc tăng `ALIBO_BROWSER_TIMEOUT_MS` |
+| Railway thiếu Chromium | Kiểm tra build log `playwright install chromium`; nếu thiếu Linux deps thì chuyển sang Dockerfile hoặc bổ sung deps theo log |
+
+## 8. Hosting free / low-cost cho Taobao browser automation
+
+Playwright Chromium ngốn 250-400MB RAM/instance → Railway Hobby ($5, 512MB) tight, có thể OOM khi peak. Dưới đây là 3 phương án free / hybrid khi chưa có ngân sách Railway Pro.
+
+### Option 1 — PC cá nhân + Cloudflare Tunnel (recommend cho beta)
+
+**Cost:** $0 forever. **Setup:** 15 phút.
+
+```powershell
+# 1. Cài cloudflared
+winget install --id Cloudflare.cloudflared
+
+# 2. Terminal 1: chạy bot local
+npm run start:prod
+
+# 3. Terminal 2: expose ra Internet
+cloudflared tunnel --url http://localhost:3000
+# → in ra https://abc-xyz.trycloudflare.com
+
+# 4. Update Accesstrade postback URL về URL Cloudflare vừa cấp
+```
+
+Bot cũng có script gộp 2 terminal thành 1 lệnh:
+
+```powershell
+npm run start:tunnel
+```
+
+Script này tự build app, chạy `node dist/main` với `TELEGRAM_UPDATES_MODE=polling`, chạy `cloudflared tunnel --url http://localhost:3000`, rồi in sẵn URL postback Accesstrade để bạn copy. Nếu vừa build xong và muốn start nhanh hơn:
+
+```powershell
+npm run start:tunnel -- --skip-build
+```
+
+**Ưu điểm:** Playwright chạy mượt trên 8GB+ RAM của PC, $0 cost.
+**Nhược:** Tắt PC = bot down. URL random nếu không có domain riêng.
+
+**Fix URL random — named tunnel với domain free:**
+
+```powershell
+cloudflared tunnel login                          # login Cloudflare
+cloudflared tunnel create chotdeal                # tạo tunnel có ID cố định
+cloudflared tunnel route dns chotdeal chotdeal.<your-domain>
+cloudflared tunnel run chotdeal                   # URL cố định
+```
+
+Domain rẻ: Namecheap `.xyz` $1/năm, hoặc Cloudflare Registrar at-cost.
+
+**Tránh PC sleep:** Settings → Power → Never sleep. Hoặc lên `caffeinate`/`Insomnia` keep-alive tool.
+
+### Option 2 — Oracle Cloud Always Free (recommend long-term)
+
+**Cost:** $0 forever. **Setup:** 2-3h.
+
+Oracle cấp miễn phí vĩnh viễn:
+- ARM Ampere A1: **4 core + 24GB RAM + 200GB SSD**
+- Đủ chạy 50 Chromium instance cùng lúc
+
+**Steps:**
+1. cloud.oracle.com → sign up (cần credit card verify, không charge)
+2. Region Singapore (latency ~30ms từ VN)
+3. Create Compute → Ubuntu 22.04 ARM Ampere A1 (4 OCPU + 24GB)
+4. SSH vào, install Node 20 + Postgres + nginx + certbot
+5. `git clone` repo, `npm install`, `pm2 start dist/main.js`
+6. nginx reverse proxy + Let's Encrypt SSL
+
+**Ưu điểm:** RAM khủng, free vĩnh viễn, full control.
+**Nhược:** Setup khó hơn Railway, Oracle đôi khi reject account VN, KYC phức tạp.
+
+### Option 3 — Hybrid: Railway free + browser worker tại PC (advanced)
+
+**Cost:** $0 đến $5/tháng. **Setup:** 4h.
+
+```
+Railway Hobby ($5 credit ~3 tuần)
+├── Bot Nest core (chỉ AT — Shopee/Lazada/Tiki/TikTok)
+├── PostgreSQL (Supabase free)
+├── Webhook receive postback AT
+└── Push job vào Redis queue khi user paste Taobao
+                ↓
+PC local hoặc Oracle Free
+└── Worker subscribe Redis → chạy Playwright → trả link qua Redis
+                ↓
+Railway pop result → gửi user qua Telegram
+```
+
+Bot core không cần Chromium → fit Railway Hobby 512MB dễ. Browser worker tách ra chạy chỗ rảnh RAM.
+
+**Tools:** Upstash Redis free tier 10k commands/day = đủ cho 100 user.
+
+**Ưu điểm:** Tách concern, scale uptime tốt, AT vẫn 24/7 dù PC tắt.
+**Nhược:** Phức tạp nhất, phải code message queue + worker process.
+
+### Option 4 — AT-only mode (đơn giản nhất nếu chưa cần Taobao)
+
+**Cost:** $0-5/tháng. Khi `ALIBO_AUTOMATION_MODE=disabled`:
+
+```env
+ALIBO_AUTOMATION_MODE=disabled
+```
+
+Bot chỉ phục vụ Shopee/Lazada/Tiki/TikTok. Memory ~80MB → Railway Hobby thoải mái. Khi user paste Taobao → bot báo "đang phát triển, sắp ra mắt".
+
+Đây là chiến lược **lean MVP**: ship core trước (95% revenue tới từ Shopee), Taobao bổ sung sau khi có ngân sách.
+
+### Quyết định nhanh
+
+| Tình huống bạn | Pick |
+|---|---|
+| Đang test 5-20 friend, chưa có user thật | **Option 1** (PC + Cloudflare Tunnel) |
+| Có 50-500 user, cần 24/7 ổn định | **Option 2** (Oracle Free) hoặc Railway $5 |
+| Có 500+ user, có doanh thu | Railway Pro $20 hoặc VPS Vultr $6 Singapore |
+| Chỉ muốn test AT trước, Taobao chưa cần | **Option 4** (AT-only) trên Railway Hobby |
+
+### Optimization cho Railway Hobby (nếu vẫn dùng $5)
+
+Đã có sẵn trong code:
+- Browser singleton FIFO queue → không spawn nhiều Chromium đồng thời
+- Auto restart Chromium sau N requests (ALIBO_BROWSER_RESTART_EVERY)
+- Context cleanup sau mỗi request
+
+Thêm bước manual:
+- Set `ALIBO_BROWSER_RESTART_EVERY=20` (giảm từ 100) để Chromium recycle thường xuyên hơn
+- `--memory-pressure-off` Chromium flag (nếu service support)
+- Monitor Railway memory: nếu chạm 450MB liên tục → cần upgrade hoặc move
+
+### UptimeRobot — keep-alive + alert miễn phí
+
+```
+1. uptimerobot.com → sign up free
+2. Add Monitor:
+   URL: https://chotdeal-production.up.railway.app/health
+   Interval: 5 min
+3. Alert: email + Telegram (qua bot @uptimerobot_bot)
+```
+
+Tác dụng: bot bị crash → bạn biết trong 5 phút thay vì user complain.

@@ -1,12 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectBot } from 'nestjs-telegraf';
+import { TransactionStatus } from '@prisma/client';
 import { Telegraf, Context } from 'telegraf';
 
 import { PrismaService } from '../prisma/prisma.service';
 
+export interface BroadcastResult {
+  total: number;
+  sent: number;
+  failed: number;
+  blocked: number;
+}
+
 /**
- * Gửi thông báo từ bot đến user. Best-effort: nếu user đã block bot
- * hoặc lỗi network, bot chỉ log warning và không làm vỡ business flow.
+ * Gửi thông báo từ bot đến user. Best-effort — nếu user đã block bot
+ * hoặc lỗi network, ta nuốt error để không vỡ flow business chính.
  */
 @Injectable()
 export class NotificationsService {
@@ -17,21 +25,24 @@ export class NotificationsService {
     private readonly prisma: PrismaService,
   ) {}
 
+
   async notifyTransactionPending(transactionId: string): Promise<void> {
     const tx = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       include: { user: true },
     });
     if (!tx) return;
+    const amount = await this.orderNotificationAmount(tx.userId, tx.orderId, [
+      TransactionStatus.PENDING,
+    ]);
 
     const message = [
-      '⏳ Hệ thống Cashback đã ghi nhận đơn hàng của bạn!',
+      '🛒 Đơn hàng đã được hệ thống Cashback ghi nhận!',
       '',
-      `📦 Order: ${publicOrderId(tx)}`,
-      `💰 Cashback tạm tính: ${vnd(tx.userShare)} đang chờ sàn duyệt.`,
+      `📦 Order: ${tx.orderId}`,
+      `💰 Cashback dự kiến: ${vnd(amount)} (đang chờ duyệt)`,
       '',
-      'Số tiền này chỉ là tạm tính theo dữ liệu hệ thống gửi về. Khi sàn duyệt đơn, cashback sẽ chuyển sang số dư có thể rút.',
-      'Gõ /history để theo dõi trạng thái đơn.',
+      'Đơn cần được sàn xác nhận sau 1.5-3 tháng. Khi duyệt, tiền sẽ chuyển sang số dư có thể rút.',
     ].join('\n');
 
     await this.send(Number(tx.user.telegramId), message);
@@ -43,12 +54,15 @@ export class NotificationsService {
       include: { user: true },
     });
     if (!tx) return;
+    const amount = await this.orderNotificationAmount(tx.userId, tx.orderId, [
+      TransactionStatus.APPROVED,
+    ]);
 
     const message = [
       '✅ Đơn hàng đã được duyệt!',
       '',
-      `📦 Order: ${publicOrderId(tx)}`,
-      `💰 Cashback: ${vnd(tx.userShare)} đã sẵn sàng để rút.`,
+      `📦 Order: ${tx.orderId}`,
+      `💰 Cashback: ${vnd(amount)} đã sẵn sàng để rút.`,
       '',
       'Gõ /balance để xem số dư hoặc /withdraw để rút tiền.',
     ].join('\n');
@@ -62,14 +76,18 @@ export class NotificationsService {
       include: { user: true },
     });
     if (!tx) return;
+    const amount = await this.orderNotificationAmount(tx.userId, tx.orderId, [
+      TransactionStatus.REJECTED,
+      TransactionStatus.CANCELLED,
+    ]);
 
     const message = [
       '❌ Đơn hàng không được duyệt',
       '',
-      `📦 Order: ${publicOrderId(tx)}`,
-      `💸 Cashback ${vnd(tx.userShare)} đã bị huỷ.`,
+      `📦 Order: ${tx.orderId}`,
+      `💸 Cashback ${vnd(amount)} đã bị huỷ.`,
       '',
-      'Lý do thường gặp: đơn bị huỷ/hoàn hàng, mã khuyến mãi không tính hoa hồng, hoặc cookie tracking không match. Đơn sau vẫn có thể tracking bình thường nhé.',
+      'Lý do thường gặp: đơn bị huỷ/hoàn hàng, mua giá khuyến mãi không tính hoa hồng, hoặc cookie tracking không match. Đừng buồn — đơn sau sẽ tracking ổn hơn 💪',
     ].join('\n');
 
     await this.send(Number(tx.user.telegramId), message);
@@ -88,8 +106,8 @@ export class NotificationsService {
       `💸 Số tiền: ${vnd(payout.amount)}`,
       `🏦 ${payout.bankName} - ${payout.bankAccount}`,
       `👤 ${payout.bankHolder}`,
-      '',
       payout.note ? `📝 Ghi chú: ${payout.note}` : '',
+      '',
       'Cảm ơn bạn đã tin dùng ChotDeal! Tiếp tục mua sắm để nhận thêm cashback nhé 🛒',
     ]
       .filter(Boolean)
@@ -111,12 +129,125 @@ export class NotificationsService {
       `💸 Số tiền: ${vnd(payout.amount)} đã được hoàn lại số dư.`,
       payout.note ? `📝 Lý do: ${payout.note}` : '',
       '',
-      'Vui lòng kiểm tra thông tin bank bằng /setbank hoặc liên hệ admin nếu cần.',
+      'Vui lòng kiểm tra thông tin bank (gõ /setbank) hoặc liên hệ admin nếu cần.',
     ]
       .filter(Boolean)
       .join('\n');
 
     await this.send(Number(payout.user.telegramId), message);
+  }
+
+  async broadcastToActiveUsers(text: string): Promise<BroadcastResult> {
+    const users = await this.prisma.user.findMany({
+      where: { isBlocked: false },
+      select: { id: true, telegramId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const result: BroadcastResult = {
+      total: users.length,
+      sent: 0,
+      failed: 0,
+      blocked: 0,
+    };
+
+    for (const user of users) {
+      const status = await this.sendBroadcastMessage(
+        Number(user.telegramId),
+        text,
+      );
+
+      if (status === 'sent') {
+        result.sent += 1;
+      } else if (status === 'blocked') {
+        result.blocked += 1;
+        await this.prisma.user
+          .update({
+            where: { id: user.id },
+            data: { isBlocked: true },
+          })
+          .catch(() => undefined);
+      } else {
+        result.failed += 1;
+      }
+
+      await sleep(80);
+    }
+
+    return result;
+  }
+
+  async broadcastDealToActiveUsers(
+    dealId: string,
+    text: string,
+  ): Promise<BroadcastResult> {
+    const users = await this.prisma.user.findMany({
+      where: { isBlocked: false },
+      select: { id: true, telegramId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const result: BroadcastResult = {
+      total: users.length,
+      sent: 0,
+      failed: 0,
+      blocked: 0,
+    };
+
+    for (const user of users) {
+      const status = await this.sendBroadcastMessage(
+        Number(user.telegramId),
+        text,
+        dealId,
+      );
+
+      if (status === 'sent') {
+        result.sent += 1;
+      } else if (status === 'blocked') {
+        result.blocked += 1;
+        await this.prisma.user
+          .update({
+            where: { id: user.id },
+            data: { isBlocked: true },
+          })
+          .catch(() => undefined);
+      } else {
+        result.failed += 1;
+      }
+
+      await sleep(100);
+    }
+
+    return result;
+  }
+
+  async sendAdminTest(chatId: number, text: string): Promise<boolean> {
+    return (await this.sendBroadcastMessage(chatId, text)) === 'sent';
+  }
+
+  async sendDealTest(
+    chatId: number,
+    dealId: string,
+    text: string,
+  ): Promise<boolean> {
+    return (await this.sendBroadcastMessage(chatId, text, dealId)) === 'sent';
+  }
+
+  private async orderNotificationAmount(
+    userId: string,
+    orderId: string,
+    statuses: TransactionStatus[],
+  ): Promise<number> {
+    const sum = await this.prisma.transaction.aggregate({
+      where: {
+        userId,
+        orderId,
+        status: { in: statuses },
+      },
+      _sum: { userShare: true },
+    });
+
+    return sum._sum.userShare ?? 0;
   }
 
   private async send(chatId: number, text: string): Promise<void> {
@@ -130,15 +261,47 @@ export class NotificationsService {
       );
     }
   }
+
+  private async sendBroadcastMessage(
+    chatId: number,
+    text: string,
+    dealId?: string,
+  ): Promise<'sent' | 'blocked' | 'failed'> {
+    try {
+      await this.bot.telegram.sendMessage(chatId, text, {
+        link_preview_options: { is_disabled: true },
+        ...(dealId
+          ? {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '🛒 Lấy link cashback',
+                      callback_data: `deal:${dealId}`,
+                    },
+                  ],
+                ],
+              },
+            }
+          : {}),
+      });
+      return 'sent';
+    } catch (err) {
+      const message = (err as Error).message;
+      this.logger.warn(`Broadcast to chat=${chatId} failed: ${message}`);
+      if (/bot was blocked|user is deactivated|chat not found|forbidden/i.test(message)) {
+        return 'blocked';
+      }
+      return 'failed';
+    }
+  }
+
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function vnd(n: number): string {
   return `${n.toLocaleString('vi-VN')}đ`;
-}
-
-function publicOrderId(tx: { orderId: string; rawPayload?: unknown }): string {
-  const raw = tx.rawPayload as { order_id?: unknown } | null | undefined;
-  return typeof raw?.order_id === 'string' && raw.order_id
-    ? raw.order_id
-    : tx.orderId;
 }

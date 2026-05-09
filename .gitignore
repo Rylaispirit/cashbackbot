@@ -12,9 +12,13 @@ build
 .env
 .env.local
 .env.*.local
+.secrets/
+playwright/.auth/
+*.storage-state.json
 
 # logs
 *.log
+.runtime/
 npm-debug.log*
 yarn-debug.log*
 

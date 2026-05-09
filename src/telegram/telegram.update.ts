@@ -1,47 +1,33 @@
 import { BadRequestException, Logger } from '@nestjs/common';
-import { Update, Start, Help, Command, On, Ctx } from 'nestjs-telegraf';
+import { ConfigService } from '@nestjs/config';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { Update, Start, Help, Command, On, Ctx, Action } from 'nestjs-telegraf';
 import { Scenes } from 'telegraf';
 
 import { UsersService } from '../users/users.service';
 import { AffiliateService } from '../affiliate/affiliate.service';
-import { extractFirstSupportedUrl } from '../affiliate/url-detector';
+import {
+  extractFirstSupportedUrl,
+  networkOf,
+  type Merchant,
+} from '../affiliate/url-detector';
 import { PayoutsService } from '../payouts/payouts.service';
 import { RateLimitService } from './rate-limit.service';
 import { SETBANK_SCENE_ID } from './scenes/setbank.scene';
+import { DealsService } from '../deals/deals.service';
 
 type Context = Scenes.SceneContext;
 const ACCESSSTRADE_TRACKING_WAIT_HOURS = 72;
 const ACCESSSTRADE_TRACKING_WAIT_MS =
   ACCESSSTRADE_TRACKING_WAIT_HOURS * 60 * 60 * 1000;
-const ALL_MERCHANT_LABELS = [
-  'Shopee',
-  'Lazada',
-  'Tiki',
-  'TikTok Shop',
-  'Taobao',
-  'Tmall',
-  '1688',
-];
 
 function buildWelcomeMessage(enabledMerchants: string[]): string {
   const supported = enabledMerchants.join(', ') || 'Shopee';
-  const upcoming = ALL_MERCHANT_LABELS.filter(
-    (merchant) => !enabledMerchants.includes(merchant),
-  );
-  const chinaEnabled = ['Taobao', 'Tmall', '1688'].some((merchant) =>
-    enabledMerchants.includes(merchant),
-  );
-  const notes = [
-    upcoming.length > 0 ? `Sắp tới: ${upcoming.join(', ')}.` : '',
-    chinaEnabled
-      ? 'Lưu ý: hàng Trung Quốc (Taobao/Tmall/1688) cần đặt qua dịch vụ vận chuyển hộ.'
-      : '',
-  ].filter(Boolean);
-
   return `🎯 Chào mừng bạn đến với ChotDeal!
 
 Bot hoàn tiền cashback cho đơn ${supported}.
-${notes.join('\n')}
+Lưu ý: hàng Trung Quốc (Taobao/Tmall/1688) cần đặt qua dịch vụ vận chuyển hộ.
 
 📌 Cách dùng:
 1. Copy link sản phẩm bất kỳ
@@ -57,16 +43,6 @@ ${notes.join('\n')}
 /help - xem lại hướng dẫn`;
 }
 
-function buildUnsupportedLinkMessage(enabledMerchants: string[]): string {
-  const supported = enabledMerchants.join(', ') || 'Shopee';
-  const upcoming = ALL_MERCHANT_LABELS.filter(
-    (merchant) => !enabledMerchants.includes(merchant),
-  );
-  const upcomingText =
-    upcoming.length > 0 ? `\n\n${upcoming.join(', ')} sẽ mở dần sau nhé.` : '';
-  return `Mình không tìm thấy link sản phẩm hợp lệ. ChotDeal hiện đang hỗ trợ: ${supported}.${upcomingText}`;
-}
-
 @Update()
 export class TelegramUpdate {
   private readonly logger = new Logger(TelegramUpdate.name);
@@ -76,6 +52,8 @@ export class TelegramUpdate {
     private readonly affiliateService: AffiliateService,
     private readonly payoutsService: PayoutsService,
     private readonly rateLimit: RateLimitService,
+    private readonly config: ConfigService,
+    private readonly deals: DealsService,
   ) {}
 
   @Start()
@@ -99,6 +77,78 @@ export class TelegramUpdate {
     await ctx.reply(
       buildWelcomeMessage(this.affiliateService.getEnabledMerchantLabels()),
     );
+  }
+
+  @Action(/^deal:(.+)$/)
+  async onDealCallback(@Ctx() ctx: Context) {
+    const from = ctx.from;
+    if (!from) return;
+
+    const callback = ctx.callbackQuery as { data?: string } | undefined;
+    const dealId = callback?.data?.match(/^deal:(.+)$/)?.[1];
+    if (!dealId) return;
+
+    await ctx.answerCbQuery('Đang tạo link cashback riêng cho bạn...').catch(() => undefined);
+
+    const deal = await this.deals.findActiveDeal(dealId);
+    if (!deal) {
+      await ctx.reply('Deal này đã hết hạn hoặc không còn khả dụng.');
+      return;
+    }
+
+    const detected = extractFirstSupportedUrl(deal.originalUrl);
+    const merchant = detected?.merchant ?? deal.merchant;
+    const isAliboLink = networkOf(merchant as Merchant) === 'alibo';
+
+    const user = await this.usersService.upsertTelegramUser({
+      telegramId: from.id,
+      username: from.username,
+      firstName: from.first_name,
+      lastName: from.last_name,
+    });
+
+    try {
+      const result = await this.affiliateService.createAffiliateLink({
+        userId: user.id,
+        originalUrl: deal.originalUrl,
+      });
+      const link = result.link;
+      const aliboOpenAppUrl =
+        isAliboLink && result.mobileDeepLink
+          ? this.buildAliboOpenAppUrl(link.subId)
+          : null;
+      const cashbackUrl = aliboOpenAppUrl ?? link.affiliateUrl;
+
+      await ctx.reply(
+        [
+          '✅ Link cashback của bạn đã sẵn sàng',
+          '',
+          `🛍 ${deal.title}`,
+          `Sàn: ${labelMerchant(merchant)}`,
+          '',
+          cashbackUrl,
+          '',
+          isAliboLink && aliboOpenAppUrl
+            ? 'Bấm link trên rồi chọn “Mở app Taobao”. Hãy mua trong phiên đó để hệ thống tracking cashback.'
+            : 'Mở đúng link trên để mua hàng thì bot mới tracking được cashback.',
+          '',
+          '⏳ Đơn có thể mất vài phút đến 72h mới hiện trong /history.',
+        ].join('\n'),
+        { link_preview_options: { is_disabled: true } },
+      );
+    } catch (err) {
+      if (err instanceof BadRequestException) {
+        await ctx.reply(err.message);
+        return;
+      }
+      this.logger.error(
+        `create deal affiliate link failed: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+      await ctx.reply(
+        'Có lỗi khi tạo link cashback cho deal này. Bạn thử bấm lại sau 1-2 phút nhé.',
+      );
+    }
   }
 
   @Command('balance')
@@ -165,8 +215,9 @@ export class TelegramUpdate {
         const merchant = tx.link?.merchant ? labelMerchant(tx.link.merchant) : '?';
         const date = formatDate(tx.createdAt);
         const status = labelStatus(tx.status);
+        const oid = publicOrderId(tx);
         lines.push(
-          `${status} ${date} | ${merchant} | ${formatVnd(tx.userShare)} | ${publicOrderId(tx)}`,
+          `${status} ${date} | ${merchant} | ${formatVnd(tx.userShare)} | ${oid}`,
         );
       }
       lines.push('');
@@ -274,9 +325,7 @@ export class TelegramUpdate {
     const detected = extractFirstSupportedUrl(text);
     if (!detected) {
       await ctx.reply(
-        buildUnsupportedLinkMessage(
-          this.affiliateService.getEnabledMerchantLabels(),
-        ),
+        `Mình không tìm thấy link sản phẩm hợp lệ. ChotDeal hiện đang hỗ trợ: ${this.affiliateService.getEnabledMerchantLabels().join(', ')}.`,
       );
       return;
     }
@@ -287,31 +336,68 @@ export class TelegramUpdate {
       firstName: from.first_name,
       lastName: from.last_name,
     });
+    const isAliboLink = networkOf(detected.merchant) === 'alibo';
 
     try {
+      if (isAliboLink) {
+        await ctx.reply(
+          [
+            `⏳ Đang tạo link chiết khấu ${labelMerchant(detected.merchant)} cho bạn...`,
+            'Quá trình này có thể mất 10-30 giây. Bot sẽ gửi link ngay khi tạo xong.',
+          ].join('\n'),
+        );
+      }
+
       const result = await this.affiliateService.createAffiliateLink({
         userId: user.id,
         originalUrl: detected.url,
       });
       const link = result.link;
-      await ctx.reply(
-        [
-          `🛒 Sàn: ${labelMerchant(detected.merchant)}`,
-          '',
-          '🔗 Link cashback của bạn:',
-          link.affiliateUrl,
-          '',
-          'Bạn cần mở đúng link vừa tạo ở trên để mua hàng thì bot mới tracking được cashback.',
-          '',
-          '⏳ Lưu ý: Đơn hàng có thể mất vài phút đến 72h mới được hệ thống Cashback ghi nhận và hiện trong /history.',
-          '',
-          'Trong thời gian này bot chưa biết chính xác cashback, vì số tiền chỉ được tính khi hệ thống Cashback có dữ liệu đơn hàng thực tế.',
-          'Nếu sau 72h chưa thấy đơn, hãy gửi admin mã đơn + ảnh đơn hàng để kiểm tra.',
-          '',
-          '⚠️ Mở link trên rồi mua hàng luôn trong session đó để đảm bảo bot tracking được. Đừng đóng tab giữa chừng.',
-        ].join('\n') + (result.notice ? '\n\n' + result.notice : ''),
-        { link_preview_options: { is_disabled: true } },
-      );
+      const aliboOpenAppUrl =
+        isAliboLink && result.mobileDeepLink
+          ? this.buildAliboOpenAppUrl(link.subId)
+          : null;
+      const replyText =
+        isAliboLink && aliboOpenAppUrl
+          ? [
+              `🛒 Sàn: ${labelMerchant(detected.merchant)}`,
+              '',
+              '📱 Link cashback mở app Taobao:',
+              aliboOpenAppUrl,
+              '',
+              'Bấm link trên rồi chọn "Mở app Taobao". Hãy mua trong phiên đó để bot tracking được cashback.',
+              '',
+              '⏳ Lưu ý: Đơn hàng có thể mất vài phút đến 72h mới được hệ thống Cashback ghi nhận và hiện trong /history.',
+              '',
+              'Trong thời gian này bot chưa biết chính xác cashback, vì số tiền chỉ được tính khi hệ thống Cashback có dữ liệu đơn hàng thực tế.',
+              'Nếu sau 72h chưa thấy đơn, hãy gửi admin mã đơn + ảnh đơn hàng để kiểm tra.',
+            ].join('\n') + (result.notice ? '\n\n' + result.notice : '')
+          : [
+              `🛒 Sàn: ${labelMerchant(detected.merchant)}`,
+              '',
+              '🔗 Link cashback của bạn:',
+              link.affiliateUrl,
+              '',
+              'Bạn cần mở đúng link vừa tạo ở trên để mua hàng thì bot mới tracking được cashback.',
+              '',
+              '⏳ Lưu ý: Đơn hàng có thể mất vài phút đến 72h mới được hệ thống Cashback ghi nhận và hiện trong /history.',
+              '',
+              'Trong thời gian này bot chưa biết chính xác cashback, vì số tiền chỉ được tính khi hệ thống Cashback có dữ liệu đơn hàng thực tế.',
+              'Nếu sau 72h chưa thấy đơn, hãy gửi admin mã đơn + ảnh đơn hàng để kiểm tra.',
+              '',
+              '⚠️ Mở link trên rồi mua hàng luôn trong session đó để đảm bảo bot tracking được. Đừng đóng tab giữa chừng.',
+            ].join('\n') + (result.notice ? '\n\n' + result.notice : '');
+
+      await ctx.reply(replyText, {
+        link_preview_options: { is_disabled: true },
+      });
+
+      if (isAliboLink && result.mobileDeepLink && !aliboOpenAppUrl) {
+        await ctx.reply(
+          this.buildAliboOpenAppMessage(aliboOpenAppUrl, result.mobileDeepLink),
+          { link_preview_options: { is_disabled: true } },
+        );
+      }
     } catch (err) {
       if (err instanceof BadRequestException) {
         await ctx.reply(err.message);
@@ -321,9 +407,64 @@ export class TelegramUpdate {
         `createAffiliateLink failed: ${(err as Error).message}`,
         (err as Error).stack,
       );
-      await ctx.reply('Có lỗi tạo link. Thử lại sau hoặc inbox admin nhé.');
+      if (isAliboLink) {
+        await ctx.reply(
+          'Taobao/Tmall/1688 đang bận hoặc phiên đăng nhập tạo link đã hết hạn. Bạn thử lại sau nhé, nếu vẫn lỗi hãy gửi admin kiểm tra.',
+        );
+        return;
+      }
+      await ctx.reply('Có lỗi tạo link. Thử lại sau hoặc inbox @admin nhé.');
     }
   }
+
+  private buildAliboOpenAppUrl(subId: string): string | null {
+    const publicBaseUrl =
+      this.config.get<string>('PUBLIC_BASE_URL')?.trim() ??
+      readRuntimePublicBaseUrl();
+    if (!publicBaseUrl) return null;
+
+    try {
+      const base = new URL(publicBaseUrl);
+      base.pathname = `/api/open/taobao/${encodeURIComponent(subId)}`;
+      base.search = '';
+      base.hash = '';
+      return base.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  private buildAliboOpenAppMessage(
+    openAppUrl: string | null,
+    mobileDeepLink: string,
+  ): string {
+    if (openAppUrl) {
+      return [
+        '📱 Mở app Taobao nhanh hơn:',
+        '',
+        'Bấm link dưới đây rồi chọn "Mở app Taobao":',
+        openAppUrl,
+        '',
+        'Nếu app chưa bật, trong trang đó có nút copy link mở app.',
+      ].join('\n');
+    }
+
+    return [
+      '📱 Mở app Taobao nhanh hơn:',
+      '',
+      'Copy dòng dưới đây rồi mở app Taobao:',
+      mobileDeepLink,
+      '',
+      'Nếu Telegram không cho copy/mở trực tiếp, hãy dùng link cashback web ở tin nhắn trên.',
+    ].join('\n');
+  }
+}
+
+function readRuntimePublicBaseUrl(): string | null {
+  const file = resolve(process.cwd(), '.runtime/public-base-url.txt');
+  if (!existsSync(file)) return null;
+  const value = readFileSync(file, 'utf8').trim();
+  return value || null;
 }
 
 function formatVnd(amount: number): string {

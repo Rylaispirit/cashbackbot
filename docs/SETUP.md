@@ -27,7 +27,6 @@ TELEGRAM_ADMIN_IDS=<telegram_id_admin>
 DATABASE_URL=<supabase_pooler_url>
 DIRECT_URL=<supabase_direct_url>
 ACCESSTRADE_PUB_ID=<publisher_id>
-ACCESSTRADE_POSTBACK_SECRET=<random_secret>
 ```
 
 Nếu muốn deploy Railway webhook:
@@ -106,6 +105,7 @@ Ghi chú:
 
 - `GET /v1/me` và `GET /v1/transactions` đã được verify
 - create-link API chính thức hiện dùng `POST /v1/product_link/create`
+- Postback thật của Accesstrade hiện dùng `transaction_id`, `utm_source`, `reward`, `product_price`, `status`, `is_confirmed` và thường không gửi `signature`.
 - Bot chỉ mở cashback cho sàn có campaign ID verified. Hiện Shopee có campaign mặc định trong code.
 - Muốn bật Lazada, cần lấy đúng campaign ID Lazada Việt Nam trong tài khoản đối tác rồi điền `ACCESSTRADE_CAMPAIGN_ID_LAZADA` trên Railway.
 - nếu chưa có `campaign_id`, bot vẫn fallback về deeplink template nên không chặn launch
@@ -116,6 +116,8 @@ Ghi chú:
 npm run simulate:postback -- --sub=tg<sub_id> --order=O1 --commission=20000 --status=pending
 npm run simulate:postback -- --sub=tg<sub_id> --order=O1 --commission=20000 --status=approved
 ```
+
+Simulator mặc định gửi `transaction_id`, `utm_source`, `reward`, và `product_price`. Dùng `--tx=<id>` để retry cùng một transaction hoặc test nhiều dòng cho cùng `order`.
 
 Kỳ vọng:
 
@@ -185,8 +187,9 @@ Test thêm admin flow:
 Chỉ public rộng sau khi có ít nhất 1 đơn thật từ Accesstrade xác nhận:
 
 - postback thật trả `200`
-- signature pass
-- transaction map đúng user
+- unsigned payload có `transaction_id` được nhận đúng
+- transaction map đúng user qua `utm_source`
+- cùng `order_id` nhiều `transaction_id` tạo được nhiều rows
 - balance cập nhật đúng
 - notification hiển thị đúng
 
@@ -194,5 +197,5 @@ Chỉ public rộng sau khi có ít nhất 1 đơn thật từ Accesstrade xác 
 
 - Bot không trả lời local: kiểm tra `TELEGRAM_UPDATES_MODE=polling`
 - Production không nhận Telegram update: kiểm tra `PUBLIC_BASE_URL`, `TELEGRAM_WEBHOOK_PATH`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`
-- Postback trả `401`: kiểm tra `ACCESSTRADE_POSTBACK_SECRET` và format signature
+- Postback trả `401`: kiểm tra service đã deploy code mới chưa; nếu vẫn là build cũ, tạm xoá `ACCESSTRADE_POSTBACK_SECRET` trên Railway rồi redeploy
 - Railway healthcheck fail: mở `GET /api/health` trực tiếp để xác nhận app lên thành công

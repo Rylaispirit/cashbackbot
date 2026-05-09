@@ -21,12 +21,14 @@ import { URL } from 'url';
 interface Args {
   sub: string;
   order: string;
+  transactionId: string;
   commission: string;
   saleAmount: string;
   status: string;
+  isConfirmed: string;
   endpoint: string;
   secret?: string;
-  subField: 'aff_sub' | 'sub_id' | 'sub1';
+  subField: 'utm_source' | 'aff_sub' | 'sub_id' | 'sub1';
 }
 
 function parseArgs(): Args {
@@ -38,12 +40,15 @@ function parseArgs(): Args {
   return {
     sub: args.sub ?? args.subId ?? 'tgtest123abc',
     order: args.order ?? args.orderId ?? `ORDER-${Date.now()}`,
+    transactionId:
+      args.tx ?? args.transactionId ?? args['transaction_id'] ?? `SIM-${Date.now()}`,
     commission: args.commission ?? '20000',
     saleAmount: args.saleAmount ?? args['sale_amount'] ?? '200000',
     status: args.status ?? 'pending',
+    isConfirmed: args.isConfirmed ?? args['is_confirmed'] ?? '0',
     endpoint: args.endpoint ?? 'http://localhost:3000/api/postback/accesstrade',
     secret: args.secret ?? process.env.ACCESSTRADE_POSTBACK_SECRET,
-    subField: (args.subField ?? 'aff_sub') as Args['subField'],
+    subField: (args.subField ?? 'utm_source') as Args['subField'],
   };
 }
 
@@ -83,9 +88,11 @@ async function main() {
   const args = parseArgs();
   const payload: Record<string, string> = {
     order_id: args.order,
-    commission: args.commission,
-    sale_amount: args.saleAmount,
+    transaction_id: args.transactionId,
+    reward: args.commission,
+    product_price: args.saleAmount,
     status: args.status,
+    is_confirmed: args.isConfirmed,
     timestamp: String(Math.floor(Date.now() / 1000)),
   };
   payload[args.subField] = args.sub;

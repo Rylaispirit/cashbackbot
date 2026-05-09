@@ -56,13 +56,59 @@ model Link {
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
+  aliboOrders  AliboOrder[]
 
   @@index([userId])
   @@index([createdAt])
   @@map("links")
 }
 
+// ===== Deal broadcast (admin gửi deal, user bấm nút mới tạo link riêng) =====
+model Deal {
+  id                  String   @id @default(cuid())
+  title               String
+  description         String?  @db.Text
+  merchant            String
+  originalUrl         String   @db.Text
+  isActive            Boolean  @default(true)
+  createdByTelegramId BigInt?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("deals")
+}
+
 // ===== Transaction (1 đơn hàng từ postback) =====
+// ===== Deal candidates (bot quet tu nguon deal, admin duyet moi gui user) =====
+model DealCandidate {
+  id                   String    @id @default(cuid())
+  source               String    @default("accesstrade")
+  externalId           String
+  merchant             String
+  title                String
+  description          String?   @db.Text
+  originalUrl          String    @db.Text
+  imageUrl             String?   @db.Text
+  sourceAffiliateUrl   String?   @db.Text
+  startAt              DateTime?
+  endAt                DateTime?
+  status               String    @default("NEW")
+  score                Int       @default(0)
+  rawPayload           Json?
+  dealId               String?
+  reviewedByTelegramId BigInt?
+  reviewedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([source, externalId])
+  @@index([status, createdAt])
+  @@index([merchant])
+  @@map("deal_candidates")
+}
+
 enum TransactionStatus {
   PENDING
   APPROVED
@@ -72,8 +118,12 @@ enum TransactionStatus {
 
 model Transaction {
   id             String            @id @default(cuid())
-  // Order ID từ Accesstrade
-  orderId        String            @unique
+  // External transaction ID (AT: transaction_id, alibo: manual `alibo_<orderId>`)
+  // — đây là idempotency key thực sự, vì AT có thể gửi nhiều postback cho cùng orderId
+  // (1 main commission + N brand bonus, mỗi cái transaction_id khác nhau).
+  externalTxId   String?           @unique
+  // Order ID hiển thị (NHIỀU transaction có thể share cùng orderId)
+  orderId        String
   subId          String
   userId         String
   linkId         String?
@@ -91,16 +141,55 @@ model Transaction {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
-  user User  @relation(fields: [userId], references: [id])
-  link Link? @relation(fields: [linkId], references: [id])
+  user       User        @relation(fields: [userId], references: [id])
+  link       Link?       @relation(fields: [linkId], references: [id])
+  aliboOrder AliboOrder?
 
   @@index([userId])
   @@index([status])
   @@index([subId])
+  @@index([orderId])
   @@map("transactions")
 }
 
 // ===== Payout (chi trả cho user) =====
+// ===== Alibo raw orders (Taobao/Tmall/1688) =====
+model AliboOrder {
+  id            String            @id @default(cuid())
+  orderId       String
+  lineKey       String            @unique
+  platform      String?
+  statusRaw     String
+  status        TransactionStatus @default(PENDING)
+  paidAt        DateTime?
+  settledAt     DateTime?
+  itemTitle     String?           @db.Text
+  itemLink      String?           @db.Text
+  itemImage     String?           @db.Text
+  quantity      Int               @default(0)
+  saleAmountCny Decimal?          @db.Decimal(12, 2)
+  commissionCny Decimal?          @db.Decimal(12, 2)
+  commissionVnd Int               @default(0)
+  saleAmountVnd Int               @default(0)
+  rawPayload    Json
+  matchStatus   String            @default("UNMATCHED")
+  matchedSubId  String?
+  matchedLinkId String?
+  transactionId String?           @unique
+  matchedAt     DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  matchedLink Link?        @relation(fields: [matchedLinkId], references: [id], onDelete: SetNull)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([matchStatus, createdAt])
+  @@index([status])
+  @@index([paidAt])
+  @@map("alibo_orders")
+}
+
 enum PayoutStatus {
   PENDING
   PROCESSING

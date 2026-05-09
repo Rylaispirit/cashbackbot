@@ -1,93 +1,71 @@
-import { IsOptional, IsString, IsNumberString } from 'class-validator';
+import { IsOptional } from 'class-validator';
+
+export type PostbackScalar = string | number;
 
 /**
- * Payload từ Accesstrade postback. Tên field có thể khác tuỳ template
- * bạn cấu hình trên dashboard AT — verify lại bằng vài request thật.
- *
- * Tên field thường gặp:
- *   order_id, sub_id (hoặc aff_sub), commission, sale_amount, status, signature
- *
- * Accesstrade report/postback thực tế có thể gửi:
- *   utm_source, reward, product_price, transaction_id, campaign_id, is_confirmed
+ * Payload từ Accesstrade postback. Real shape verified từ production data:
+ *   transaction_id (unique), order_id, utm_source (= sub_id),
+ *   reward (commission), product_price (sale_amount),
+ *   status (integer), is_confirmed, confirmed_date, click_time, sales_time, ...
  */
 export class AccesstradePostbackDto {
-  @IsString()
   @IsOptional()
-  order_id!: string;
+  order_id?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  transaction_id?: string;
+  transaction_id?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  campaign_id?: string;
+  campaign_id?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  aff_sub?: string;
+  aff_sub?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  sub_id?: string;
+  sub_id?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  sub1?: string;
+  sub1?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  sub2?: string;
+  sub2?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  sub3?: string;
+  sub3?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  sub4?: string;
+  sub4?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  sub5?: string;
+  sub5?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  utm_source?: string;
+  utm_source?: PostbackScalar;
 
-  @IsNumberString()
   @IsOptional()
-  commission?: string;
+  commission?: PostbackScalar;
 
-  @IsNumberString()
   @IsOptional()
-  sale_amount?: string;
+  sale_amount?: PostbackScalar;
 
-  @IsNumberString()
   @IsOptional()
-  reward?: string;
+  reward?: PostbackScalar;
 
-  @IsNumberString()
   @IsOptional()
-  product_price?: string;
+  product_price?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  status!: string;
+  status?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  is_confirmed?: string;
+  is_confirmed?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
   signature?: string;
 
-  @IsString()
   @IsOptional()
-  campaign?: string;
+  campaign?: PostbackScalar;
 
-  @IsString()
   @IsOptional()
-  timestamp?: string;
+  timestamp?: PostbackScalar;
 }

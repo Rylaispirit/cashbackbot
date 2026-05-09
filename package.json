@@ -5,10 +5,11 @@
   "private": true,
   "scripts": {
     "build": "nest build",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && playwright install chromium",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
+    "start:tunnel": "ts-node -T scripts/start-local-tunnel.ts",
     "start:railway": "node dist/main",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
@@ -20,7 +21,11 @@
     "test:at": "ts-node -T scripts/test-accesstrade.ts",
     "launch:check": "ts-node -T scripts/launch-readiness.ts",
     "telegram:set-commands": "ts-node -T scripts/set-telegram-commands.ts",
-    "reconcile:alibo": "ts-node -T scripts/reconcile-alibo-csv.ts"
+    "reconcile:alibo": "ts-node -T scripts/reconcile-alibo-csv.ts",
+    "backfill:external-tx-id": "ts-node -T scripts/backfill-external-tx-id.ts",
+    "alibo:capture-session": "ts-node -T scripts/alibo-capture-session.ts",
+    "alibo:discover": "ts-node -T scripts/alibo-discover-link-creator.ts",
+    "alibo:test-browser": "ts-node -T scripts/test-alibo-browser.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",
@@ -33,6 +38,7 @@
     "class-validator": "^0.14.1",
     "dotenv": "^16.4.5",
     "nestjs-telegraf": "^2.8.1",
+    "playwright": "^1.59.1",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1",
     "telegraf": "^4.15.6"

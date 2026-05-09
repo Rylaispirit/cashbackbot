@@ -10,7 +10,7 @@
  *   3. Match với Link table:
  *      a) Nếu CSV có sub_id → match exact subId
  *      b) Nếu không, match theo item_id + click_time window ±48h
- *   4. Tạo Transaction (idempotent theo orderId)
+ *   4. Tạo Transaction (idempotent theo externalTxId = alibo_<orderId>)
  *   5. In report
  *
  * Lưu ý format CSV alibo:
@@ -403,9 +403,15 @@ async function main() {
       continue;
     }
 
-    // Idempotent
-    const existing = await prisma.transaction.findUnique({
-      where: { orderId: row.orderId },
+    // Idempotent. Old rows may have externalTxId=NULL, so keep a scoped fallback.
+    const externalTxId = `alibo_${row.orderId}`;
+    const existing = await prisma.transaction.findFirst({
+      where: {
+        OR: [
+          { externalTxId },
+          { externalTxId: null, orderId: row.orderId, subId: link.subId },
+        ],
+      },
     });
     if (existing) {
       if (existing.status === args.status) {
@@ -452,6 +458,7 @@ async function main() {
     await prisma.$transaction(async (tx) => {
       await tx.transaction.create({
         data: {
+          externalTxId,
           orderId: row.orderId,
           subId: link.subId,
           userId: link.userId,

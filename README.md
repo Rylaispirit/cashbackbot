@@ -29,7 +29,6 @@ Sao chép `.env.example` thành `.env`, rồi điền tối thiểu:
 - `DATABASE_URL`
 - `DIRECT_URL`
 - `ACCESSTRADE_PUB_ID`
-- `ACCESSTRADE_POSTBACK_SECRET`
 
 Biến production mới:
 
@@ -115,7 +114,8 @@ npm run simulate:postback -- \
 Trước khi public rộng, cần xác nhận ít nhất 1 đơn thật từ Accesstrade:
 
 - postback trả `200`
-- `sub_id` map đúng user
+- `utm_source` map đúng user
+- `transaction_id` tạo idempotency đúng, kể cả nhiều rows cùng `order_id`
 - balance pending/approved cập nhật đúng
 - notification Telegram hiển thị đúng
 

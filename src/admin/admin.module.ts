@@ -4,9 +4,12 @@ import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
 import { AdminUpdate } from './admin.update';
 import { PayoutsModule } from '../payouts/payouts.module';
+import { AffiliateModule } from '../affiliate/affiliate.module';
+import { DealsModule } from '../deals/deals.module';
+import { AliboOrdersModule } from '../alibo-orders/alibo-orders.module';
 
 @Module({
-  imports: [PayoutsModule],
+  imports: [PayoutsModule, AffiliateModule, DealsModule, AliboOrdersModule],
   providers: [AdminGuard, AdminService, AdminUpdate],
   exports: [AdminGuard, AdminService],
 })

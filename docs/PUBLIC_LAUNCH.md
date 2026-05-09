@@ -41,10 +41,11 @@ npm run telegram:set-commands
 Do not promote widely until one real Accesstrade order passes all checks:
 
 - Real postback returns `200`.
-- Signature verification passes.
-- Transaction maps to the correct user by `sub1`.
+- Unsigned Accesstrade payload is accepted when it has `transaction_id`.
+- Transaction maps to the correct user by `utm_source`.
+- Multiple rows with the same `order_id` but different `transaction_id` are stored separately.
 - Pending and approved balances move correctly.
-- User receives the approval/rejection notification.
+- User receives at most one notification per order/status group.
 
 ## Rollout
 

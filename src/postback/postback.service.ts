@@ -8,16 +8,24 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AccesstradePostbackDto } from './dto';
 
-interface NormalizedAccesstradePostback {
-  orderId: string;
-  displayOrderId: string;
-  subId: string;
-  status: TransactionStatus;
-  grossCommission: number;
-  saleAmount: number;
-  rawStatus: string;
-}
-
+/**
+ * Postback handler for Accesstrade.
+ *
+ * REAL AT payload shape (verified from production data):
+ *   - transaction_id   ← UNIQUE per row (idempotency key)
+ *   - order_id         ← merchant order, có thể repeat (main + brand bonus)
+ *   - utm_source       ← bot's sub_id (e.g. "tgcmorj4xg7bb647")
+ *   - reward           ← commission VND (NOT 'commission' field!)
+ *   - product_price    ← sale amount (NOT 'sale_amount'!)
+ *   - status           ← integer (0=pending, 1=approved, 2=rejected, ...)
+ *   - is_confirmed     ← 0 or 1 — true confirmation flag
+ *   - confirmed_date   ← timestamp when AT marked confirmed
+ *   - product_id, product_category, click_time, sales_time, browser, ip, ...
+ *
+ * NOTE: AT does NOT send a `signature` field. Signature verify is disabled
+ * unless ACCESSTRADE_POSTBACK_SECRET is set AND payload contains signature
+ * (legacy paths). For production, rely on AT's IP whitelist or a token-in-URL.
+ */
 @Injectable()
 export class PostbackService {
   private readonly logger = new Logger(PostbackService.name);
@@ -29,25 +37,20 @@ export class PostbackService {
   ) {}
 
   /**
-   * Verify signature của AT.
-   * Default: HMAC-SHA256(order_id + sub_id + status, secret) hex
-   * Đổi cho khớp template AT cấu hình thực tế nếu khác.
+   * Verify chữ ký AT — chỉ enforce khi env có set secret VÀ payload có field signature.
+   * AT default không gửi signature nên function này thường return true.
    */
   verifySignature(payload: AccesstradePostbackDto, _req: Request): boolean {
     const secret = this.config.get<string>('ACCESSTRADE_POSTBACK_SECRET');
-    if (!secret) {
-      this.logger.warn(
-        'ACCESSTRADE_POSTBACK_SECRET trống — postback không được verify (CHỈ DÙNG DEV)',
-      );
+    const signature = this.toText(payload.signature);
+    if (!secret || !signature) {
+      // Default mode: AT không sign. Tin tưởng IP whitelist hoặc URL token.
       return true;
     }
-    if (!payload.signature) {
-      return this.isTrustedUnsignedAccesstradePayload(payload);
-    }
 
-    const subId = getPostbackSubId(payload) ?? '';
-    const orderId = getPostbackOrderId(payload) ?? '';
-    const status = getPostbackStatusRaw(payload);
+    const orderId = this.toText(payload.order_id) ?? '';
+    const subId = this.pickSubId(payload) ?? '';
+    const status = this.toText(payload.status) ?? '';
     const expected = createHmac('sha256', secret)
       .update(`${orderId}${subId}${status}`)
       .digest('hex');
@@ -55,7 +58,7 @@ export class PostbackService {
     try {
       return timingSafeEqual(
         Buffer.from(expected, 'hex'),
-        Buffer.from(payload.signature, 'hex'),
+        Buffer.from(signature, 'hex'),
       );
     } catch {
       return false;
@@ -63,160 +66,194 @@ export class PostbackService {
   }
 
   async processPostback(payload: AccesstradePostbackDto) {
-    const normalized = normalizePostback(payload);
-    if (!normalized) {
+    const orderId = this.toText(payload.order_id);
+    const subId = this.pickSubId(payload);
+    const externalTxId = this.toText(payload.transaction_id);
+
+    // Log raw mọi postback để debug
+    this.logger.log(
+      `Postback in: tx=${externalTxId ?? '-'} order=${orderId ?? '-'} sub=${subId ?? '-'} reward=${payload.reward ?? payload.commission}`,
+    );
+
+    if (!orderId) {
       this.logger.warn(
-        `Postback missing required fields: order=${getPostbackOrderId(payload) ?? '-'} sub=${getPostbackSubId(payload) ?? '-'}`,
+        `Postback missing order_id. Raw: ${JSON.stringify(payload).slice(0, 500)}`,
+      );
+      return;
+    }
+
+    if (!externalTxId) {
+      this.logger.warn(
+        `Postback missing transaction_id; skipped to avoid unsafe orderId idempotency. order=${orderId} sub=${subId ?? '-'}`,
+      );
+      return;
+    }
+
+    if (!subId) {
+      this.logger.warn(
+        `Postback missing sub_id (utm_source/aff_sub/sub_id all empty). Raw: ${JSON.stringify(payload).slice(0, 500)}`,
       );
       return;
     }
 
     const link = await this.prisma.link.findUnique({
-      where: { subId: normalized.subId },
+      where: { subId },
       include: { user: true },
     });
     if (!link) {
-      this.logger.warn(
-        `Link not found for sub_id=${normalized.subId} order=${normalized.orderId}`,
-      );
+      this.logger.warn(`Link not found for sub_id=${subId} order=${orderId} tx=${externalTxId}`);
       return;
     }
+
+    const grossCommission = this.parseAmount(payload.reward ?? payload.commission);
+    const saleAmount = this.parseAmount(
+      payload.product_price ?? payload.sale_amount,
+    );
+    const status = this.mapStatus(payload);
 
     const userRate =
       link.user.commissionRate ??
       parseInt(this.config.get<string>('USER_COMMISSION_RATE', '70'), 10);
-    const userShare = Math.floor((normalized.grossCommission * userRate) / 100);
-    const ownerShare = normalized.grossCommission - userShare;
+    const userShare = Math.floor((grossCommission * userRate) / 100);
+    const ownerShare = grossCommission - userShare;
 
-    const existingAggregate =
-      normalized.displayOrderId !== normalized.orderId
-        ? await this.prisma.transaction.findUnique({
-            where: { orderId: normalized.displayOrderId },
-          })
-        : null;
-
-    if (existingAggregate) {
-      const updated = await this.handleStatusTransition(
-        existingAggregate.id,
-        existingAggregate.status,
-        normalized.status,
-      );
-      if (updated) await this.notifyTransition(existingAggregate.id, normalized.status);
-      return;
-    }
-
+    // AT transaction_id is the only safe idempotency key; order_id can repeat.
     const existing = await this.prisma.transaction.findUnique({
-      where: { orderId: normalized.orderId },
+      where: { externalTxId },
     });
 
     if (existing) {
-      const updated = await this.handleStatusTransition(
+      const result = await this.handleStatusTransition(
         existing.id,
         existing.status,
-        normalized.status,
+        status,
       );
-      // Notify user only when Accesstrade changes the tracked order status.
-      if (updated) await this.notifyTransition(existing.id, normalized.status);
+      if (result.updated && result.shouldNotify) {
+        await this.notifyTransition(existing.id, status);
+      }
       return;
     }
 
     const created = await this.prisma.$transaction(async (tx) => {
       const newTx = await tx.transaction.create({
         data: {
-          orderId: normalized.orderId,
-          subId: normalized.subId,
+          externalTxId,
+          orderId,
+          subId,
           userId: link.userId,
           linkId: link.id,
-          saleAmount: normalized.saleAmount,
-          grossCommission: normalized.grossCommission,
+          saleAmount,
+          grossCommission,
           userShare,
           ownerShare,
-          status: normalized.status,
+          status,
           rawPayload: payload as unknown as object,
-          approvedAt:
-            normalized.status === TransactionStatus.APPROVED ? new Date() : null,
+          approvedAt: status === TransactionStatus.APPROVED ? new Date() : null,
         },
       });
 
-      if (normalized.status === TransactionStatus.PENDING) {
+      if (status === TransactionStatus.PENDING) {
         await tx.user.update({
           where: { id: link.userId },
           data: { balancePending: { increment: userShare } },
         });
-      } else if (normalized.status === TransactionStatus.APPROVED) {
+      } else if (status === TransactionStatus.APPROVED) {
         await tx.user.update({
           where: { id: link.userId },
           data: { balanceAvail: { increment: userShare } },
         });
       }
 
-      return newTx;
+      const sameOrderStatusCount = await tx.transaction.count({
+        where: {
+          userId: link.userId,
+          orderId,
+          status: { in: this.statusesForNotification(status) },
+          NOT: { id: newTx.id },
+        },
+      });
+
+      return {
+        transaction: newTx,
+        shouldNotify: sameOrderStatusCount === 0,
+      };
     });
 
     this.logger.log(
-      `Transaction created: order=${normalized.orderId} user=${link.userId} status=${normalized.status} userShare=${userShare}`,
+      `Transaction created: tx=${externalTxId} order=${orderId} user=${link.userId} status=${status} userShare=${userShare}`,
     );
 
-    // Notify the first time Accesstrade sends this order to our system.
-    if (normalized.status === TransactionStatus.PENDING) {
-      this.notifications.notifyTransactionPending(created.id).catch(() => {});
-    } else if (normalized.status === TransactionStatus.APPROVED) {
-      this.notifications.notifyTransactionApproved(created.id).catch(() => {});
-    } else if (
-      normalized.status === TransactionStatus.REJECTED ||
-      normalized.status === TransactionStatus.CANCELLED
-    ) {
-      this.notifications.notifyTransactionRejected(created.id).catch(() => {});
+    if (created.shouldNotify) {
+      await this.notifyTransition(created.transaction.id, status);
     }
   }
 
-  private isTrustedUnsignedAccesstradePayload(
-    payload: AccesstradePostbackDto,
-  ): boolean {
-    const allowUnsigned = this.config.get<string>(
-      'ACCESSTRADE_ALLOW_UNSIGNED_POSTBACK',
-      'true',
+  /** Pick sub_id from various AT field names. utm_source là default chính. */
+  private pickSubId(payload: AccesstradePostbackDto): string | null {
+    return (
+      this.toText(payload.utm_source) ??
+      this.toText(payload.aff_sub) ??
+      this.toText(payload.sub_id) ??
+      this.toText(payload.sub1) ??
+      null
     );
-    if (allowUnsigned.toLowerCase() === 'false') return false;
-
-    const normalized = normalizePostback(payload);
-    if (!normalized) return false;
-    if (!payload.transaction_id || !payload.campaign_id) return false;
-
-    const allowedCampaignIds = [
-      this.config.get<string>('ACCESSTRADE_CAMPAIGN_ID_SHOPEE'),
-      this.config.get<string>('ACCESSTRADE_CAMPAIGN_ID_LAZADA'),
-      this.config.get<string>('ACCESSTRADE_CAMPAIGN_ID_TIKI'),
-      this.config.get<string>('ACCESSTRADE_CAMPAIGN_ID_TIKTOK'),
-      // Verified Shopee Smartlink fallback used by production.
-      '4751584435713464237',
-    ].filter(Boolean);
-
-    const campaignOk = allowedCampaignIds.includes(payload.campaign_id);
-    if (!campaignOk) {
-      this.logger.warn(
-        `Unsigned postback rejected: unknown campaign_id=${payload.campaign_id}`,
-      );
-    }
-    return campaignOk;
   }
 
   /**
-   * Trả về true nếu thực sự có chuyển status (không phải no-op).
+   * Parse số tiền — AT gửi dạng "104720.0" (string với decimal). Round về int VND.
    */
+  private parseAmount(raw: unknown): number {
+    if (raw === null || raw === undefined || raw === '') return 0;
+    const n = parseFloat(String(raw));
+    return Number.isFinite(n) ? Math.round(n) : 0;
+  }
+
+  /**
+   * Map status từ AT về TransactionStatus.
+   *
+   * Pattern thấy được:
+   *   status: 0 + is_confirmed: 0  → PENDING (mới track)
+   *   status: 1 + is_confirmed: 1  → APPROVED (đã duyệt cuối cùng)
+   *   status: 2                    → REJECTED
+   *   status: 3                    → CANCELLED
+   *
+   * Fallback: nếu status là string ('pending', 'approved'), dùng string match.
+   */
+  private mapStatus(payload: AccesstradePostbackDto): TransactionStatus {
+    // String form (legacy hoặc test simulator)
+    const raw = String(payload.status ?? '').trim().toLowerCase();
+    if (raw === 'approved' || raw === 'success' || raw === 'confirmed') {
+      return TransactionStatus.APPROVED;
+    }
+    if (raw === 'rejected') return TransactionStatus.REJECTED;
+    if (raw === 'cancelled' || raw === 'canceled') {
+      return TransactionStatus.CANCELLED;
+    }
+
+    // Integer form từ AT thật
+    const intStatus = parseInt(raw, 10);
+    const isConfirmed = parseInt(String(payload.is_confirmed ?? '0'), 10);
+
+    if (intStatus === 1 || isConfirmed === 1) return TransactionStatus.APPROVED;
+    if (intStatus === 2) return TransactionStatus.REJECTED;
+    if (intStatus === 3) return TransactionStatus.CANCELLED;
+
+    return TransactionStatus.PENDING;
+  }
+
   private async handleStatusTransition(
     transactionId: string,
     from: TransactionStatus,
     to: TransactionStatus,
-  ): Promise<boolean> {
-    if (from === to) return false;
+  ): Promise<{ updated: boolean; shouldNotify: boolean }> {
+    if (from === to) return { updated: false, shouldNotify: false };
 
     const tx = await this.prisma.transaction.findUniqueOrThrow({
       where: { id: transactionId },
     });
     const userShare = tx.userShare;
 
-    await this.prisma.$transaction(async (db) => {
+    const shouldNotify = await this.prisma.$transaction(async (db) => {
       if (from === TransactionStatus.PENDING) {
         await db.user.update({
           where: { id: tx.userId },
@@ -248,78 +285,57 @@ export class PostbackService {
           approvedAt: to === TransactionStatus.APPROVED ? new Date() : null,
         },
       });
+
+      if (this.notificationKind(from) === this.notificationKind(to)) {
+        return false;
+      }
+
+      const sameOrderStatusCount = await db.transaction.count({
+        where: {
+          userId: tx.userId,
+          orderId: tx.orderId,
+          status: { in: this.statusesForNotification(to) },
+          NOT: { id: transactionId },
+        },
+      });
+
+      return sameOrderStatusCount === 0;
     });
 
     this.logger.log(`Transaction ${transactionId} status: ${from} → ${to}`);
-    return true;
+    return { updated: true, shouldNotify };
   }
 
   private async notifyTransition(transactionId: string, to: TransactionStatus) {
     if (to === TransactionStatus.PENDING) {
-      this.notifications.notifyTransactionPending(transactionId).catch(() => {});
+      await this.notifications.notifyTransactionPending(transactionId);
     } else if (to === TransactionStatus.APPROVED) {
-      this.notifications.notifyTransactionApproved(transactionId).catch(() => {});
+      await this.notifications.notifyTransactionApproved(transactionId);
     } else if (
       to === TransactionStatus.REJECTED ||
       to === TransactionStatus.CANCELLED
     ) {
-      this.notifications.notifyTransactionRejected(transactionId).catch(() => {});
+      await this.notifications.notifyTransactionRejected(transactionId);
     }
   }
-}
 
-function mapStatus(raw: string): TransactionStatus {
-  const s = raw.toLowerCase();
-  if (s === '1') return TransactionStatus.APPROVED;
-  if (s === '2') return TransactionStatus.REJECTED;
-  if (s === '0') return TransactionStatus.PENDING;
-  if (s.includes('approve') || s === 'success' || s === 'confirmed')
-    return TransactionStatus.APPROVED;
-  if (s.includes('new') || s.includes('pending')) return TransactionStatus.PENDING;
-  if (s.includes('reject')) return TransactionStatus.REJECTED;
-  if (s.includes('cancel')) return TransactionStatus.CANCELLED;
-  return TransactionStatus.PENDING;
-}
-
-function getPostbackSubId(payload: AccesstradePostbackDto): string | undefined {
-  return payload.aff_sub ?? payload.sub_id ?? payload.sub1 ?? payload.utm_source;
-}
-
-function getPostbackOrderId(payload: AccesstradePostbackDto): string | undefined {
-  return payload.order_id;
-}
-
-function getPostbackStatusRaw(payload: AccesstradePostbackDto): string {
-  if (payload.is_confirmed === '1') return 'approved';
-  if (payload.status !== undefined && payload.status !== null) {
-    return String(payload.status);
+  private statusesForNotification(status: TransactionStatus): TransactionStatus[] {
+    if (
+      status === TransactionStatus.REJECTED ||
+      status === TransactionStatus.CANCELLED
+    ) {
+      return [TransactionStatus.REJECTED, TransactionStatus.CANCELLED];
+    }
+    return [status];
   }
-  return payload.is_confirmed ?? 'pending';
-}
 
-function parseMoney(raw: string | undefined): number {
-  if (!raw) return 0;
-  const n = Number(String(raw).replace(/[^\d.-]/g, ''));
-  return Number.isFinite(n) ? Math.round(n) : 0;
-}
+  private notificationKind(status: TransactionStatus): string {
+    return this.statusesForNotification(status).join('|');
+  }
 
-function normalizePostback(
-  payload: AccesstradePostbackDto,
-): NormalizedAccesstradePostback | null {
-  const orderId = getPostbackOrderId(payload);
-  const subId = getPostbackSubId(payload);
-  if (!orderId || !subId) return null;
-
-  const rawStatus = getPostbackStatusRaw(payload);
-  return {
-    // Accesstrade can send multiple rows for one marketplace order. Use
-    // transaction_id as the unique DB orderId so bonus/product rows are not lost.
-    orderId: payload.transaction_id ?? orderId,
-    displayOrderId: orderId,
-    subId,
-    status: mapStatus(rawStatus),
-    rawStatus,
-    grossCommission: parseMoney(payload.commission ?? payload.reward),
-    saleAmount: parseMoney(payload.sale_amount ?? payload.product_price),
-  };
+  private toText(raw: unknown): string | null {
+    if (raw === null || raw === undefined) return null;
+    const text = String(raw).trim();
+    return text.length > 0 ? text : null;
+  }
 }

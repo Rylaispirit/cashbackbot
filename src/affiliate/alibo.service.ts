@@ -1,56 +1,103 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { Merchant, extractAlibabaItemId } from './url-detector';
+import {
+  AliboBrowserAutomationError,
+  AliboBrowserService,
+} from './alibo-browser.service';
 
-/**
- * AliboService — wrap Taobao/Tmall/1688 link qua master account alibo.vn.
- *
- * Vì alibo.vn không có public API, có 2 chế độ:
- *
- *   Chế độ 1 (default) — TEMPLATE-BASED:
- *     Dùng URL template trong env ALIBO_LINK_TEMPLATE.
- *     Bot wrap link Taobao bằng template, sub_id để tracking local.
- *     User mua → alibo trả commission về master account → admin reconcile thủ công.
- *
- *   Chế độ 2 (planned) — PUPPETEER-BASED:
- *     Bot login alibo headless, tạo "link quảng cáo" qua web UI.
- *     Chậm hơn, fragile hơn, làm sau khi cần.
- *
- * Flow reconciliation:
- *   1. User click → Link row được tạo với network='alibo', alibaba_item_id, sub_id
- *   2. User mua → alibo dashboard hiển thị order
- *   3. Admin export report alibo → match theo (item_id, click time) → /admin_alibo_match
- *   4. Bot tạo Transaction → cộng pending balance cho user
- *
- * Quan trọng: phải verify ToS alibo trước khi go-live.
- */
+export interface AliboLinkResult {
+  affiliateUrl: string;
+  mobileDeepLink?: string;
+}
+
 @Injectable()
 export class AliboService {
-  constructor(private readonly config: ConfigService) {}
+  private readonly logger = new Logger(AliboService.name);
+
+  constructor(
+    private readonly config: ConfigService,
+    private readonly browser: AliboBrowserService,
+  ) {}
 
   isConfigured(): boolean {
+    if (this.isBrowserMode()) {
+      return this.browser.isConfigured();
+    }
+
     return Boolean(
       this.config.get<string>('ALIBO_MASTER_REF')?.trim() &&
         this.config.get<string>('ALIBO_LINK_TEMPLATE')?.trim(),
     );
   }
 
-  /**
-   * Build link cashback wrap qua alibo master account.
-   *
-   * Template hỗ trợ placeholders:
-   *   {master_ref}  — tài khoản master alibo.vn của bot
-   *   {url}         — original Taobao/Tmall/1688 URL (đã encode)
-   *   {sub_id}      — tracking id local của bot
-   *   {item_id}     — Taobao item id (nếu detect được)
-   *   {merchant}    — taobao | tmall | alibaba_1688
-   *
-   * Ví dụ template (bạn sẽ verify với alibo dashboard):
-   *   https://alibo.vn/r/{master_ref}?u={url}&s={sub_id}
-   *   https://alibo.vn/go?aff={master_ref}&item={item_id}&utm={sub_id}
-   */
-  buildLink(originalUrl: string, subId: string, merchant: Merchant): string {
+  async createLink(
+    originalUrl: string,
+    subId: string,
+    merchant: Merchant,
+  ): Promise<AliboLinkResult> {
+    if (this.isBrowserMode()) {
+      if (!this.browser.isConfigured()) {
+        throw new BadRequestException(
+          'Cashback Taobao/Tmall/1688 chưa mở public. Admin đang cấu hình hệ thống tạo link chiết khấu.',
+        );
+      }
+
+      try {
+        return await this.browser.createDiscountLink({
+          originalUrl,
+          subId,
+          merchant,
+        });
+      } catch (err) {
+        if (err instanceof AliboBrowserAutomationError) {
+          this.logger.warn(
+            `Alibo browser failed (${err.code}) for subId=${subId}: ${err.message}`,
+          );
+          if (err.code === 'no_discount') {
+            throw new BadRequestException(
+              'Sản phẩm này hiện không có chiết khấu trên hệ thống Cashback. Bạn thử link sản phẩm khác nhé.',
+            );
+          }
+        }
+        throw err;
+      }
+    }
+
+    return {
+      affiliateUrl: this.buildTemplateLink(originalUrl, subId, merchant),
+    };
+  }
+
+  getUserRate(): number {
+    return parseInt(
+      this.config.get<string>('ALIBO_DEFAULT_USER_RATE', '60'),
+      10,
+    );
+  }
+
+  getUserNotice(): string {
+    return [
+      '⚠️ Lưu ý hàng Trung Quốc:',
+      '• Cashback Taobao/Tmall/1688 cần đối soát thủ công, thường mất 7-30 ngày sau khi đơn giao thành công.',
+      '• Bạn cần đặt qua dịch vụ vận chuyển/order hộ. ChotDeal không vận chuyển hộ.',
+      '• Hãy lưu mã đơn dịch vụ và ảnh đơn hàng để hỗ trợ tra cứu khi cần.',
+    ].join('\n');
+  }
+
+  private isBrowserMode(): boolean {
+    return (
+      this.config.get<string>('ALIBO_AUTOMATION_MODE')?.toLowerCase().trim() ===
+      'browser'
+    );
+  }
+
+  private buildTemplateLink(
+    originalUrl: string,
+    subId: string,
+    merchant: Merchant,
+  ): string {
     const masterRef = this.config.get<string>('ALIBO_MASTER_REF');
     const template = this.config.get<string>('ALIBO_LINK_TEMPLATE');
     if (!masterRef || !template) {
@@ -67,30 +114,5 @@ export class AliboService {
       .replaceAll('{sub_id}', encodeURIComponent(subId))
       .replaceAll('{item_id}', encodeURIComponent(itemId))
       .replaceAll('{merchant}', encodeURIComponent(merchant));
-  }
-
-  /**
-   * Tỷ lệ chia % cho user khi cashback từ alibo.
-   * Alibo cắt phần trước khi đến bot, nên rate có thể khác Accesstrade.
-   * Default 60% (giảm so với 70% AT vì alibo ăn margin).
-   */
-  getUserRate(): number {
-    return parseInt(
-      this.config.get<string>('ALIBO_DEFAULT_USER_RATE', '60'),
-      10,
-    );
-  }
-
-  /**
-   * Cảnh báo extra cho user khi mua qua Taobao/1688.
-   * Hiển thị kèm link cashback.
-   */
-  getUserNotice(): string {
-    return [
-      '⚠️ Lưu ý hàng Trung Quốc:',
-      '• Cashback Taobao/1688 cần đối soát thủ công, mất 7-30 ngày sau khi đơn giao thành công.',
-      '• Cần đặt qua dịch vụ vận chuyển/order hộ. ChotDeal không vận chuyển hộ.',
-      '• Bạn cần lưu mã đơn dịch vụ để hỗ trợ tra cứu khi cần.',
-    ].join('\n');
   }
 }

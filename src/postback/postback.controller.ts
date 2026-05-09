@@ -14,14 +14,6 @@ import { Request } from 'express';
 import { PostbackService } from './postback.service';
 import { AccesstradePostbackDto } from './dto';
 
-/**
- * Endpoint nhận postback từ Accesstrade.
- *
- * Cấu hình URL trong AT dashboard, ví dụ:
- *   POST  https://your-domain.com/api/postback/accesstrade
- *
- * AT thường gửi qua GET với query string. Mình hỗ trợ cả GET lẫn POST cho an toàn.
- */
 @Controller('postback')
 export class PostbackController {
   private readonly logger = new Logger(PostbackController.name);
@@ -42,7 +34,7 @@ export class PostbackController {
 
   private async handle(payload: AccesstradePostbackDto, req: Request) {
     this.logger.log(
-      `Postback received: order=${payload.order_id} status=${payload.status} sub=${payload.aff_sub ?? payload.sub_id ?? payload.sub1 ?? payload.utm_source}`,
+      `Postback received: order=${payload.order_id} tx=${payload.transaction_id ?? '-'} status=${payload.status}`,
     );
 
     const verified = this.postbackService.verifySignature(payload, req);
@@ -52,7 +44,6 @@ export class PostbackController {
     }
 
     await this.postbackService.processPostback(payload);
-    // AT cần response 200 + body "ok" để confirm received
     return { ok: true };
   }
 }

@@ -51,6 +51,11 @@ async function main() {
       console.log('Taobao app deep link:');
       console.log(result.mobileDeepLink);
     }
+    if (result.voucherInfo) {
+      console.log('');
+      console.log('Voucher info:');
+      console.log(JSON.stringify(result.voucherInfo, null, 2));
+    }
   } finally {
     await service.close();
   }

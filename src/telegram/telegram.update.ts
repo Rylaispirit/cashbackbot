@@ -7,6 +7,7 @@ import { Scenes } from 'telegraf';
 
 import { UsersService } from '../users/users.service';
 import { AffiliateService } from '../affiliate/affiliate.service';
+import type { AliboVoucherInfo } from '../affiliate/alibo.service';
 import {
   extractFirstSupportedUrl,
   networkOf,
@@ -114,10 +115,11 @@ export class TelegramUpdate {
       });
       const link = result.link;
       const aliboOpenAppUrl =
-        isAliboLink && result.mobileDeepLink
-          ? this.buildAliboOpenAppUrl(link.subId)
-          : null;
+        isAliboLink ? this.buildAliboOpenAppUrl(link.subId) : null;
       const cashbackUrl = aliboOpenAppUrl ?? link.affiliateUrl;
+      const voucherMessage = isAliboLink
+        ? this.buildAliboVoucherMessage(result.voucherInfo)
+        : null;
 
       await ctx.reply(
         [
@@ -127,6 +129,7 @@ export class TelegramUpdate {
           `Sàn: ${labelMerchant(merchant)}`,
           '',
           cashbackUrl,
+          ...(voucherMessage ? ['', voucherMessage] : []),
           '',
           isAliboLink && aliboOpenAppUrl
             ? 'Bấm link trên rồi chọn “Mở app Taobao”. Hãy mua trong phiên đó để hệ thống tracking cashback.'
@@ -354,9 +357,10 @@ export class TelegramUpdate {
       });
       const link = result.link;
       const aliboOpenAppUrl =
-        isAliboLink && result.mobileDeepLink
-          ? this.buildAliboOpenAppUrl(link.subId)
-          : null;
+        isAliboLink ? this.buildAliboOpenAppUrl(link.subId) : null;
+      const voucherMessage = isAliboLink
+        ? this.buildAliboVoucherMessage(result.voucherInfo)
+        : null;
       const replyText =
         isAliboLink && aliboOpenAppUrl
           ? [
@@ -364,6 +368,8 @@ export class TelegramUpdate {
               '',
               '📱 Link cashback mở app Taobao:',
               aliboOpenAppUrl,
+              '',
+              voucherMessage,
               '',
               'Bấm link trên rồi chọn "Mở app Taobao". Hãy mua trong phiên đó để bot tracking được cashback.',
               '',
@@ -377,6 +383,7 @@ export class TelegramUpdate {
               '',
               '🔗 Link cashback của bạn:',
               link.affiliateUrl,
+              ...(voucherMessage ? ['', voucherMessage] : []),
               '',
               'Bạn cần mở đúng link vừa tạo ở trên để mua hàng thì bot mới tracking được cashback.',
               '',
@@ -415,6 +422,40 @@ export class TelegramUpdate {
       }
       await ctx.reply('Có lỗi tạo link. Thử lại sau hoặc inbox @admin nhé.');
     }
+  }
+
+  private buildAliboVoucherMessage(info?: AliboVoucherInfo): string {
+    if (!info || !this.hasAliboVoucherDetail(info)) {
+      return [
+        '🎁 Kiểm tra ưu đãi:',
+        'Bot chưa thấy mã giảm giá riêng cho sản phẩm này, nhưng link cashback vẫn đã được tạo.',
+      ].join('\n');
+    }
+
+    const lines = ['🎁 Ưu đãi tìm thấy:'];
+    if (info.title) lines.push(`Sản phẩm: ${info.title}`);
+    if (info.shop) lines.push(`Shop: ${info.shop}`);
+    if (info.voucher) lines.push(`Voucher: ${info.voucher}`);
+    if (info.originalPrice) lines.push(`Giá gốc: ${info.originalPrice}`);
+    if (info.finalPrice) lines.push(`Giá sau giảm: ${info.finalPrice}`);
+    if (info.discount) lines.push(`Chiết khấu/ưu đãi: ${info.discount}`);
+    if (info.expiresAt) lines.push(`Hạn dùng: ${info.expiresAt}`);
+    lines.push(
+      'Cashback thật chỉ được tính khi hệ thống Cashback ghi nhận đơn.',
+    );
+    return lines.join('\n');
+  }
+
+  private hasAliboVoucherDetail(info: AliboVoucherInfo): boolean {
+    return Boolean(
+      info.title ||
+        info.shop ||
+        info.voucher ||
+        info.originalPrice ||
+        info.finalPrice ||
+        info.discount ||
+        info.expiresAt,
+    );
   }
 
   private buildAliboOpenAppUrl(subId: string): string | null {

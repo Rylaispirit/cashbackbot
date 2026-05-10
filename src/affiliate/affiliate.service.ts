@@ -6,7 +6,7 @@ import axios from 'axios';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { detectMerchant, networkOf, Merchant, labelMerchant } from './url-detector';
-import { AliboService } from './alibo.service';
+import { AliboService, type AliboVoucherInfo } from './alibo.service';
 
 interface CreateAffiliateLinkInput {
   userId: string;
@@ -17,6 +17,7 @@ export interface AffiliateLinkResult {
   link: Link;
   notice?: string;
   mobileDeepLink?: string;
+  voucherInfo?: AliboVoucherInfo;
 }
 
 @Injectable()
@@ -69,6 +70,7 @@ export class AffiliateService {
       link,
       notice: network === 'alibo' ? this.alibo.getUserNotice() : undefined,
       mobileDeepLink: aliboLink?.mobileDeepLink,
+      voucherInfo: aliboLink?.voucherInfo,
     };
   }
 

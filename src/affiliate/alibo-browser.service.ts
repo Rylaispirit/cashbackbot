@@ -43,6 +43,18 @@ interface CreateAliboLinkInput {
 export interface AliboBrowserLinkResult {
   affiliateUrl: string;
   mobileDeepLink?: string;
+  voucherInfo?: AliboVoucherInfo;
+}
+
+export interface AliboVoucherInfo {
+  title?: string;
+  shop?: string;
+  voucher?: string;
+  originalPrice?: string;
+  finalPrice?: string;
+  discount?: string;
+  expiresAt?: string;
+  hasDiscount?: boolean;
 }
 
 interface FillTarget {
@@ -552,12 +564,15 @@ export class AliboBrowserService implements OnModuleDestroy {
     if (!response || !response.ok()) return null;
 
     const text = await response.text().catch(() => '');
+    const parsed = this.parseJsonResponse(text);
+    const voucherInfo = this.extractVoucherInfo(text, parsed);
     const mobileDeepLink = this.extractMobileDeepLink(text);
     const affiliateUrl = this.extractAffiliateUrl(text);
     if (affiliateUrl) {
       return {
         affiliateUrl,
         mobileDeepLink: mobileDeepLink ?? undefined,
+        voucherInfo,
       };
     }
 
@@ -568,6 +583,7 @@ export class AliboBrowserService implements OnModuleDestroy {
         return {
           affiliateUrl: normalized,
           mobileDeepLink: mobileDeepLink ?? undefined,
+          voucherInfo,
         };
       }
     }
@@ -581,6 +597,220 @@ export class AliboBrowserService implements OnModuleDestroy {
     }
 
     return null;
+  }
+
+  private parseJsonResponse(text: string): unknown | null {
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  private extractVoucherInfo(
+    text: string,
+    parsed: unknown | null,
+  ): AliboVoucherInfo | undefined {
+    const source = parsed ?? text;
+    const info: AliboVoucherInfo = {
+      title: this.pickField(source, [
+        'item_title',
+        'itemName',
+        'item_name',
+        'product_title',
+        'product_name',
+        'title',
+        'name',
+      ]),
+      shop: this.pickField(source, [
+        'shop_title',
+        'shop_name',
+        'seller_name',
+        'sellerNick',
+        'seller_nick',
+        'nick',
+      ]),
+      voucher: this.pickField(
+        source,
+        [
+          'coupon_info',
+          'couponInfo',
+          'coupon_name',
+          'coupon_title',
+          'coupon_amount',
+          'couponAmount',
+          'coupon_money',
+          'couponMoney',
+          'coupon_price',
+          'voucher',
+          'voucher_info',
+        ],
+        ['link', 'url', 'tpwd', 'mobile', 'open_app'],
+      ),
+      originalPrice: this.pickField(source, [
+        'reserve_price',
+        'original_price',
+        'origin_price',
+        'market_price',
+      ]),
+      finalPrice: this.pickField(source, [
+        'zk_final_price',
+        'final_price',
+        'sale_price',
+        'discount_price',
+        'coupon_after_price',
+        'coupon_final_price',
+      ]),
+      discount: this.pickField(source, [
+        'discount',
+        'discount_rate',
+        'rebate',
+        'rebate_rate',
+        'commission_rate',
+        'tk_rate',
+      ]),
+      expiresAt: this.pickField(source, [
+        'coupon_end_time',
+        'coupon_end',
+        'end_time',
+        'expire_time',
+        'expires_at',
+      ]),
+      hasDiscount: this.extractBooleanField(source, [
+        'has_coupon',
+        'hasCoupon',
+        'has_discount',
+        'hasDiscount',
+        'result',
+      ]),
+    };
+
+    const hasVisibleValue = Object.entries(info).some(([key, value]) => {
+      return key !== 'hasDiscount' && typeof value === 'string' && value.length > 0;
+    });
+    if (hasVisibleValue || typeof info.hasDiscount === 'boolean') return info;
+    return undefined;
+  }
+
+  private pickField(
+    source: unknown,
+    keyHints: string[],
+    blockedHints: string[] = [],
+  ): string | undefined {
+    const values = this.collectFieldValues(source, keyHints, blockedHints);
+    return values[0];
+  }
+
+  private collectFieldValues(
+    source: unknown,
+    keyHints: string[],
+    blockedHints: string[],
+  ): string[] {
+    const values: string[] = [];
+    const keyPatterns = keyHints.map((key) => this.normalizeFieldKey(key));
+    const blockedPatterns = blockedHints.map((key) => this.normalizeFieldKey(key));
+
+    const visit = (node: unknown, depth: number): void => {
+      if (depth > 8 || values.length >= 5) return;
+      if (Array.isArray(node)) {
+        for (const item of node) visit(item, depth + 1);
+        return;
+      }
+      if (!node || typeof node !== 'object') return;
+
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        const normalizedKey = this.normalizeFieldKey(key);
+        const isBlocked = blockedPatterns.some((pattern) =>
+          normalizedKey.includes(pattern),
+        );
+        const isMatch =
+          !isBlocked &&
+          keyPatterns.some(
+            (pattern) =>
+              normalizedKey === pattern || normalizedKey.includes(pattern),
+          );
+
+        if (isMatch) {
+          const displayValue = this.normalizeVoucherDisplayValue(value);
+          if (displayValue) values.push(displayValue);
+        }
+
+        visit(value, depth + 1);
+      }
+    };
+
+    if (typeof source === 'string') return [];
+    visit(source, 0);
+    return Array.from(new Set(values));
+  }
+
+  private extractBooleanField(
+    source: unknown,
+    keyHints: string[],
+  ): boolean | undefined {
+    if (typeof source === 'string') {
+      const resultMatch = source.match(/['"]result['"]\s*:\s*['"]?([^'",}\s]+)/i);
+      if (!resultMatch?.[1]) return undefined;
+      return this.parseBooleanish(resultMatch[1]);
+    }
+
+    const keyPatterns = keyHints.map((key) => this.normalizeFieldKey(key));
+    let found: boolean | undefined;
+    const visit = (node: unknown, depth: number): void => {
+      if (depth > 8 || typeof found === 'boolean') return;
+      if (Array.isArray(node)) {
+        for (const item of node) visit(item, depth + 1);
+        return;
+      }
+      if (!node || typeof node !== 'object') return;
+
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        const normalizedKey = this.normalizeFieldKey(key);
+        if (
+          keyPatterns.some(
+            (pattern) =>
+              normalizedKey === pattern || normalizedKey.includes(pattern),
+          )
+        ) {
+          found = this.parseBooleanish(value);
+          if (typeof found === 'boolean') return;
+        }
+        visit(value, depth + 1);
+      }
+    };
+
+    visit(source, 0);
+    return found;
+  }
+
+  private parseBooleanish(value: unknown): boolean | undefined {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value !== 'string') return undefined;
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'ok', 'success'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'fail', 'failed'].includes(normalized)) return false;
+    return undefined;
+  }
+
+  private normalizeFieldKey(key: string): string {
+    return key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  }
+
+  private normalizeVoucherDisplayValue(value: unknown): string | undefined {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const normalized = String(value)
+      .replace(/<[^>]*>/g, ' ')
+      .replaceAll('\\/', '/')
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&amp;', '&')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!normalized) return undefined;
+    if (/^(https?:\/\/|taobao:\/\/|tbopen:\/\/)/i.test(normalized)) return undefined;
+    if (normalized.length > 180) return `${normalized.slice(0, 177)}...`;
+    return normalized;
   }
 
   private extractAffiliateUrl(text: string): string | null {

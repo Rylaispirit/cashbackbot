@@ -5,12 +5,16 @@ import { Merchant, extractAlibabaItemId } from './url-detector';
 import {
   AliboBrowserAutomationError,
   AliboBrowserService,
+  type AliboVoucherInfo,
 } from './alibo-browser.service';
 
 export interface AliboLinkResult {
   affiliateUrl: string;
   mobileDeepLink?: string;
+  voucherInfo?: AliboVoucherInfo;
 }
+
+export type { AliboVoucherInfo };
 
 @Injectable()
 export class AliboService {

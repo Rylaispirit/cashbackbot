@@ -35,6 +35,9 @@ Nếu muốn deploy Railway webhook:
 NODE_ENV=production
 TELEGRAM_UPDATES_MODE=webhook
 PUBLIC_BASE_URL=https://cashbackbot-production.up.railway.app
+# Optional: chỉ dùng để rút gọn link mở app Taobao/Tmall/1688.
+# Shopee/Accesstrade và Telegram webhook vẫn dùng PUBLIC_BASE_URL.
+TAOBAO_OPEN_BASE_URL=https://go.1688vn.com
 TELEGRAM_WEBHOOK_PATH=/telegram/webhook/chotdeal-prod-20260505
 TELEGRAM_WEBHOOK_SECRET_TOKEN=<random-secret>
 ```

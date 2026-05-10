@@ -419,7 +419,8 @@ export class TelegramUpdate {
 
   private buildAliboOpenAppUrl(subId: string): string | null {
     const publicBaseUrl =
-      this.config.get<string>('PUBLIC_BASE_URL')?.trim() ??
+      this.config.get<string>('TAOBAO_OPEN_BASE_URL')?.trim() ||
+      this.config.get<string>('PUBLIC_BASE_URL')?.trim() ||
       readRuntimePublicBaseUrl();
     if (!publicBaseUrl) return null;
 

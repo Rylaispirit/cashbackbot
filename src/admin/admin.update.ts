@@ -46,9 +46,10 @@ export class AdminUpdate {
         '/admin_broadcast_test <nội dung> - gửi thử cho admin',
         '/admin_broadcast <nội dung> - gửi thông báo tới toàn bộ user',
         '/admin_deal_test <url> | <tiêu đề> | <mô tả> - gửi thử deal cho admin',
-        '/admin_deal <url> | <tiêu đề> | <mô tả> - gửi deal tới toàn bộ user',
+        '/admin_deal <url> | <tiêu đề> | <mô tả> - gửi deal tới subscriber',
         '/admin_deal_send <deal_id> - gửi deal đã tạo từ bản test',
         '/admin_deals - 10 deal gần nhất',
+        '/admin_deal_subscribers - số người đang bật nhận deal',
         '/admin_deal_off <deal_id> - tắt deal',
         '/admin_deal_on <deal_id> - bật lại deal',
         '/admin_scan_deals [limit] - quet deal Shopee tu Accesstrade',
@@ -204,6 +205,22 @@ export class AdminUpdate {
         '',
         'Gửi lại: /admin_deal_send <deal_id>',
         'Tắt deal: /admin_deal_off <deal_id>',
+      ].join('\n'),
+    );
+  }
+
+  @Command('admin_deal_subscribers')
+  async onDealSubscribers(@Ctx() ctx: Context) {
+    if (!this.assertAdmin(ctx)) return;
+    const stats = await this.deals.getDealSubscriberStats();
+    await ctx.reply(
+      [
+        '👥 Deal subscribers',
+        '',
+        `Đang bật: ${stats.enabled}`,
+        `Đã tắt: ${stats.disabled}`,
+        '',
+        'Deal broadcast chỉ gửi tới user đang bật /deals_on.',
       ].join('\n'),
     );
   }
@@ -855,7 +872,7 @@ export class AdminUpdate {
     const text = buildDealBroadcastMessage(deal);
     await ctx.reply(
       [
-        '⏳ Đang gửi deal tới người theo dõi...',
+        '⏳ Đang gửi deal tới subscriber đã bật /deals_on...',
         `Deal: ${deal.title}`,
         'Bot sẽ báo kết quả khi xong.',
       ].join('\n'),
@@ -871,7 +888,7 @@ export class AdminUpdate {
         '✅ Gửi deal hoàn tất',
         '',
         `Deal ID: ${deal.id}`,
-        `Tổng user: ${result.total}`,
+        `Subscriber phù hợp: ${result.total}`,
         `Đã gửi: ${result.sent}`,
         `User block/deactivated: ${result.blocked}`,
         `Lỗi khác: ${result.failed}`,

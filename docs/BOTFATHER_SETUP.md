@@ -34,6 +34,9 @@ Paste nguyên khối sau:
 start - Bắt đầu / xem hướng dẫn
 balance - Xem số dư cashback
 history - Lịch sử giao dịch
+deals_on - Nhận deal hot Shopee/Taobao
+deals_off - Tắt nhận deal hot
+deal_settings - Trạng thái nhận deal
 setbank - Cài tài khoản nhận tiền
 withdraw - Yêu cầu rút tiền
 help - Xem lại hướng dẫn

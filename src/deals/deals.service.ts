@@ -10,6 +10,8 @@ const DEAL_SOURCE_ACCESSTRADE = 'accesstrade';
 const DEAL_STATUS_NEW = 'NEW';
 const DEAL_STATUS_APPROVED = 'APPROVED';
 const DEAL_STATUS_REJECTED = 'REJECTED';
+const DEAL_SUBSCRIPTION_MERCHANT_ALL = 'all';
+const DEAL_SUBSCRIPTION_CATEGORY_ALL = 'all';
 
 interface AccesstradeOffer {
   id?: unknown;
@@ -23,6 +25,17 @@ interface AccesstradeOffer {
   aff_link?: unknown;
   start_time?: unknown;
   end_time?: unknown;
+}
+
+interface DealSubscriptionRecord {
+  isEnabled: boolean;
+  updatedAt: Date;
+}
+
+interface DealSubscriptionDelegate {
+  upsert(args: unknown): Promise<DealSubscriptionRecord>;
+  findUnique(args: unknown): Promise<DealSubscriptionRecord | null>;
+  count(args: unknown): Promise<number>;
 }
 
 @Injectable()
@@ -84,6 +97,70 @@ export class DealsService {
       where: { id },
       data: { isActive },
     });
+  }
+
+  async setDealSubscription(userId: string, isEnabled: boolean) {
+    return this.dealSubscriptions().upsert({
+      where: {
+        userId_merchant_category: {
+          userId,
+          merchant: DEAL_SUBSCRIPTION_MERCHANT_ALL,
+          category: DEAL_SUBSCRIPTION_CATEGORY_ALL,
+        },
+      },
+      update: { isEnabled },
+      create: {
+        userId,
+        merchant: DEAL_SUBSCRIPTION_MERCHANT_ALL,
+        category: DEAL_SUBSCRIPTION_CATEGORY_ALL,
+        isEnabled,
+      },
+    });
+  }
+
+  async getDealSubscriptionStatus(userId: string) {
+    const subscription = await this.dealSubscriptions().findUnique({
+      where: {
+        userId_merchant_category: {
+          userId,
+          merchant: DEAL_SUBSCRIPTION_MERCHANT_ALL,
+          category: DEAL_SUBSCRIPTION_CATEGORY_ALL,
+        },
+      },
+    });
+
+    return {
+      isEnabled: subscription?.isEnabled ?? false,
+      updatedAt: subscription?.updatedAt ?? null,
+    };
+  }
+
+  async getDealSubscriberStats() {
+    const subscriptions = this.dealSubscriptions();
+    const [enabled, disabled] = await Promise.all([
+      subscriptions.count({
+        where: {
+          isEnabled: true,
+          merchant: DEAL_SUBSCRIPTION_MERCHANT_ALL,
+          category: DEAL_SUBSCRIPTION_CATEGORY_ALL,
+          user: { isBlocked: false },
+        },
+      }),
+      subscriptions.count({
+        where: {
+          isEnabled: false,
+          merchant: DEAL_SUBSCRIPTION_MERCHANT_ALL,
+          category: DEAL_SUBSCRIPTION_CATEGORY_ALL,
+        },
+      }),
+    ]);
+
+    return { enabled, disabled };
+  }
+
+  private dealSubscriptions(): DealSubscriptionDelegate {
+    return (this.prisma as unknown as { dealSubscription: DealSubscriptionDelegate })
+      .dealSubscription;
   }
 
   async scanShopeeDealCandidates(input?: { limit?: number; page?: number }) {

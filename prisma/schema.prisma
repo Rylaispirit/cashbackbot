@@ -34,11 +34,29 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  links        Link[]
-  transactions Transaction[]
-  payouts      Payout[]
+  links             Link[]
+  transactions      Transaction[]
+  payouts           Payout[]
+  dealSubscriptions DealSubscription[]
 
   @@map("users")
+}
+
+model DealSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  merchant  String   @default("all")
+  category  String   @default("all")
+  isEnabled Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, merchant, category])
+  @@index([isEnabled, merchant, category])
+  @@index([userId])
+  @@map("deal_subscriptions")
 }
 
 // ===== Link (mỗi lần user paste link) =====

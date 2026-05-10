@@ -64,6 +64,9 @@ Quan trọng nhất là `/setcommands` để menu có đủ:
 - `start`
 - `balance`
 - `history`
+- `deals_on`
+- `deals_off`
+- `deal_settings`
 - `setbank`
 - `withdraw`
 - `help`

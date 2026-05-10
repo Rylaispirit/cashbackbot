@@ -12,6 +12,14 @@ export interface BroadcastResult {
   blocked: number;
 }
 
+interface DealSubscriptionUser {
+  user: { id: string; telegramId: bigint };
+}
+
+interface DealSubscriptionDelegate {
+  findMany(args: unknown): Promise<DealSubscriptionUser[]>;
+}
+
 /**
  * Gửi thông báo từ bot đến user. Best-effort — nếu user đã block bot
  * hoặc lỗi network, ta nuốt error để không vỡ flow business chính.
@@ -181,11 +189,31 @@ export class NotificationsService {
     dealId: string,
     text: string,
   ): Promise<BroadcastResult> {
-    const users = await this.prisma.user.findMany({
-      where: { isBlocked: false },
-      select: { id: true, telegramId: true },
+    const deal = await this.prisma.deal.findUnique({
+      where: { id: dealId },
+      select: { merchant: true },
+    });
+    const merchants = ['all', deal?.merchant].filter(Boolean) as string[];
+    const subscriptions = await this.dealSubscriptions().findMany({
+      where: {
+        isEnabled: true,
+        category: 'all',
+        merchant: { in: merchants },
+        user: { isBlocked: false },
+      },
+      select: {
+        user: { select: { id: true, telegramId: true } },
+      },
       orderBy: { createdAt: 'asc' },
     });
+    const userMap = new Map<
+      string,
+      { id: string; telegramId: bigint }
+    >();
+    for (const subscription of subscriptions) {
+      userMap.set(subscription.user.id, subscription.user);
+    }
+    const users = Array.from(userMap.values());
 
     const result: BroadcastResult = {
       total: users.length,
@@ -219,6 +247,11 @@ export class NotificationsService {
     }
 
     return result;
+  }
+
+  private dealSubscriptions(): DealSubscriptionDelegate {
+    return (this.prisma as unknown as { dealSubscription: DealSubscriptionDelegate })
+      .dealSubscription;
   }
 
   async sendAdminTest(chatId: number, text: string): Promise<boolean> {

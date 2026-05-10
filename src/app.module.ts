@@ -12,6 +12,7 @@ import { AdminModule } from './admin/admin.module';
 import { PayoutsModule } from './payouts/payouts.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { HealthController } from './health.controller';
+import { AliboOpenController } from './affiliate/alibo-open.controller';
 
 @Module({
   imports: [
@@ -37,6 +38,6 @@ import { HealthController } from './health.controller';
     TelegramModule,
     PostbackModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, AliboOpenController],
 })
 export class AppModule {}

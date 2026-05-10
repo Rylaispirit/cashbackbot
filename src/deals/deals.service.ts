@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { InputJsonValue } from '@prisma/client/runtime/library';
 import axios from 'axios';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -282,8 +283,12 @@ function normalizeAccesstradeOffer(raw: AccesstradeOffer) {
     endAt,
     status: DEAL_STATUS_NEW,
     score,
-    rawPayload: raw,
+    rawPayload: toPrismaJson(raw),
   };
+}
+
+function toPrismaJson(value: unknown): InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as InputJsonValue;
 }
 
 function normalizeShopeeUrl(raw: string): string | null {

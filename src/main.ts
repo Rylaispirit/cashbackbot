@@ -6,6 +6,12 @@ import { getBotToken } from 'nestjs-telegraf';
 import { Context, Telegraf } from 'telegraf';
 
 import { AppModule } from './app.module';
+import {
+  labelMerchant,
+  renderOpenTaobaoPage,
+  toTaobaoDeepLink,
+} from './affiliate/alibo-open.controller';
+import { PrismaService } from './prisma/prisma.service';
 
 type TelegramUpdatesMode = 'polling' | 'webhook';
 type TelegramWebhookHandler = (
@@ -31,6 +37,7 @@ async function bootstrap() {
 
   // Postback from Accesstrade may hit "/" without a trailing slash.
   app.setGlobalPrefix('api', { exclude: ['/'] });
+  registerTaobaoOpenBridge(app.getHttpAdapter().getInstance(), app.get(PrismaService));
 
   const bot = app.get<Telegraf<Context>>(getBotToken());
   const updatesMode = resolveTelegramUpdatesMode(
@@ -185,6 +192,51 @@ function registerPollingShutdown(bot: Telegraf<Context>): void {
 
   process.once('SIGINT', () => stopBot('SIGINT'));
   process.once('SIGTERM', () => stopBot('SIGTERM'));
+}
+
+function registerTaobaoOpenBridge(expressApp: {
+  get: (path: string, handler: (req: Request, res: Response, next: NextFunction) => void) => void;
+}, prisma: PrismaService): void {
+  expressApp.get(
+    '/api/open/taobao/:subId',
+    (req: Request, res: Response, next: NextFunction) => {
+      void (async () => {
+        const subId = String(req.params.subId ?? '').trim();
+        const link = await prisma.link.findUnique({
+          where: { subId },
+          select: {
+            affiliateUrl: true,
+            merchant: true,
+            network: true,
+          },
+        });
+
+        if (!link || link.network !== 'alibo') {
+          res.status(404).json({
+            message: 'Link cashback không tồn tại',
+            error: 'Not Found',
+            statusCode: 404,
+          });
+          return;
+        }
+
+        const deepLink = toTaobaoDeepLink(link.affiliateUrl);
+        if (!deepLink) {
+          res.redirect(302, link.affiliateUrl);
+          return;
+        }
+
+        res
+          .type('html')
+          .send(renderOpenTaobaoPage({
+            deepLink,
+            fallbackUrl: link.affiliateUrl,
+            merchant: labelMerchant(link.merchant),
+          }));
+      })().catch(next);
+    },
+  );
+  Logger.log('Taobao open bridge route mounted at /api/open/taobao/:subId', BOOTSTRAP_LOGGER);
 }
 
 bootstrap().catch((err) => {

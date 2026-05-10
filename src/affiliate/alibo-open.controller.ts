@@ -38,7 +38,7 @@ export class AliboOpenController {
   }
 }
 
-function toTaobaoDeepLink(affiliateUrl: string): string | null {
+export function toTaobaoDeepLink(affiliateUrl: string): string | null {
   try {
     const parsed = new URL(affiliateUrl);
     if (!isTaobaoFamilyHost(parsed.hostname)) return null;
@@ -63,7 +63,7 @@ function isTaobaoFamilyHost(hostname: string): boolean {
   );
 }
 
-function renderOpenTaobaoPage(input: {
+export function renderOpenTaobaoPage(input: {
   deepLink: string;
   fallbackUrl: string;
   merchant: string;
@@ -290,7 +290,7 @@ function renderOpenTaobaoPage(input: {
 </html>`;
 }
 
-function labelMerchant(merchant: string): string {
+export function labelMerchant(merchant: string): string {
   switch (merchant) {
     case 'tmall':
       return 'Tmall';

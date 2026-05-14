@@ -1121,14 +1121,14 @@ function statusIcon(s: string): string {
 }
 
 function formatUser(u: {
-  telegramId: bigint;
+  telegramId: bigint | null;
   username: string | null;
   firstName: string | null;
   lastName: string | null;
 }): string {
   const name = [u.firstName ?? '', u.lastName ?? ''].filter(Boolean).join(' ').trim();
   const handle = u.username ? `@${u.username}` : '';
-  const tg = `tg:${u.telegramId}`;
+  const tg = u.telegramId ? `tg:${u.telegramId}` : 'tg:-';
   return [name, handle, tg].filter(Boolean).join(' ');
 }
 

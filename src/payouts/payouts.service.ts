@@ -127,7 +127,7 @@ export class PayoutsService {
     return result;
   }
 
-  async listPending(limit = 20): Promise<(Payout & { telegramId: bigint })[]> {
+  async listPending(limit = 20): Promise<(Payout & { telegramId: bigint | null })[]> {
     const rows = await this.prisma.payout.findMany({
       where: {
         status: { in: [PayoutStatus.PENDING, PayoutStatus.PROCESSING] },

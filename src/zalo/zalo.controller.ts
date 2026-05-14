@@ -211,6 +211,7 @@ export class ZaloController {
   ): string | null {
     return (
       headers['x-zalo-secret-token'] ??
+      headers['x-bot-api-secret-token'] ??
       headers['x-secret-token'] ??
       headers['x-bot-secret'] ??
       headers['zalo-secret-token'] ??
@@ -236,10 +237,18 @@ export class ZaloController {
         lower === 'authorization' ||
         lower === 'user-agent'
       ) {
-        out[lower] = typeof v === 'string' ? v.slice(0, 80) : String(v);
+        out[lower] = this.redactHeader(lower, v);
       }
     }
     return out;
+  }
+
+  private redactHeader(name: string, value: unknown): string {
+    const text = typeof value === 'string' ? value : String(value);
+    if (/secret|token|authorization/i.test(name)) {
+      return text ? `${text.slice(0, 4)}...redacted` : '';
+    }
+    return text.slice(0, 80);
   }
 
   private hashUserId(id: string): number {

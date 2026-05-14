@@ -41,7 +41,7 @@ export class ZaloService implements OnModuleInit {
     this.http = axios.create({
       baseURL: `${base}${token}`,
       timeout: 15_000,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
     });
   }
 
@@ -88,10 +88,11 @@ export class ZaloService implements OnModuleInit {
       return false;
     }
     try {
-      const res = await this.http.post<ZaloBaseResponse>('/sendMessage', {
+      const payload = Buffer.from(JSON.stringify({
         chat_id: input.chatId,
         text: input.text,
-      });
+      }), 'utf8');
+      const res = await this.http.post<ZaloBaseResponse>('/sendMessage', payload);
       if (!res.data.ok) {
         this.logger.warn(
           `Zalo sendMessage failed chat=${input.chatId}: ${res.data.description} (code=${res.data.error_code})`,

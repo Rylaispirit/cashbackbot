@@ -17,6 +17,7 @@ import { AffiliateService } from '../affiliate/affiliate.service';
 import {
   extractFirstSupportedUrl,
   labelMerchant,
+  type Merchant,
   networkOf,
 } from '../affiliate/url-detector';
 import { RateLimitService } from '../telegram/rate-limit.service';
@@ -120,28 +121,44 @@ export class ZaloController {
       return { ok: true };
     }
 
-    const isAliboLink = networkOf(detected.merchant) === 'alibo';
+    await this.zalo.sendMessage({
+      chatId,
+      text: [
+        `⏳ Đang tạo link cashback ${labelMerchant(detected.merchant)} cho bạn...`,
+        networkOf(detected.merchant) === 'alibo'
+          ? 'Quá trình này có thể mất 10-30 giây. Bot sẽ gửi link ngay khi tạo xong.'
+          : 'Nếu hệ thống đối tác phản hồi chậm, bot vẫn sẽ gửi link sau khi tạo xong.',
+      ].join('\n'),
+    });
+
+    void this.createAndSendAffiliateLink({
+      chatId,
+      originalUrl: detected.url,
+      merchant: detected.merchant,
+      userId: user.id,
+    });
+
+    return { ok: true };
+  }
+
+  private async createAndSendAffiliateLink(input: {
+    chatId: string;
+    originalUrl: string;
+    merchant: Merchant;
+    userId: string;
+  }): Promise<void> {
+    const isAliboLink = networkOf(input.merchant) === 'alibo';
 
     try {
-      if (isAliboLink) {
-        await this.zalo.sendMessage({
-          chatId,
-          text: [
-            `⏳ Đang tạo link chiết khấu ${labelMerchant(detected.merchant)} cho bạn...`,
-            'Quá trình này có thể mất 10-30 giây. Bot sẽ gửi link ngay khi tạo xong.',
-          ].join('\n'),
-        });
-      }
-
       const result = await this.affiliate.createAffiliateLink({
-        userId: user.id,
-        originalUrl: detected.url,
+        userId: input.userId,
+        originalUrl: input.originalUrl,
       });
       const cashbackUrl = isAliboLink
         ? this.buildAliboOpenAppUrl(result.link.subId) ?? result.link.affiliateUrl
         : result.link.affiliateUrl;
       const lines = [
-        `🛒 Sàn: ${labelMerchant(detected.merchant)}`,
+        `🛒 Sàn: ${labelMerchant(input.merchant)}`,
         '',
         isAliboLink ? '📱 Link cashback mở app Taobao:' : '🔗 Link cashback của bạn:',
         cashbackUrl,
@@ -151,18 +168,16 @@ export class ZaloController {
           : '⚠️ Mở link trên rồi mua hàng để bot tracking được.',
       ];
       if (result.notice) lines.push('', result.notice);
-      await this.zalo.sendMessage({ chatId, text: lines.join('\n') });
+      await this.zalo.sendMessage({ chatId: input.chatId, text: lines.join('\n') });
     } catch (err) {
       this.logger.error(
         `Zalo createAffiliateLink failed: ${(err as Error).message}`,
       );
       await this.zalo.sendMessage({
-        chatId,
+        chatId: input.chatId,
         text: `❌ ${(err as Error).message}`,
       });
     }
-
-    return { ok: true };
   }
 
   private buildAliboOpenAppUrl(subId: string): string | null {

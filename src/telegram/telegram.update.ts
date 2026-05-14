@@ -2,7 +2,7 @@ import { BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Update, Start, Help, Command, On, Ctx, Action } from 'nestjs-telegraf';
+import { Update, Start, Help, Command, Hears, Ctx, Action } from 'nestjs-telegraf';
 import { Scenes } from 'telegraf';
 
 import { UsersService } from '../users/users.service';
@@ -379,7 +379,7 @@ export class TelegramUpdate {
     }
   }
 
-  @On('text')
+  @Hears(/^[^/].+/)
   async onText(@Ctx() ctx: Context) {
     if (ctx.scene?.current) return;
 

@@ -13,6 +13,7 @@ import { PayoutsModule } from './payouts/payouts.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { HealthController } from './health.controller';
 import { AliboOpenController } from './affiliate/alibo-open.controller';
+import { ZaloModule } from './zalo/zalo.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AliboOpenController } from './affiliate/alibo-open.controller';
     PayoutsModule,
     AdminModule,
     TelegramModule,
+    ZaloModule,
     PostbackModule,
   ],
   controllers: [HealthController, AliboOpenController],

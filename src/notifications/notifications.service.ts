@@ -4,6 +4,7 @@ import { TransactionStatus } from '@prisma/client';
 import { Telegraf, Context } from 'telegraf';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { ZaloService } from '../zalo/zalo.service';
 
 export interface BroadcastResult {
   total: number;
@@ -13,11 +14,17 @@ export interface BroadcastResult {
 }
 
 interface DealSubscriptionUser {
-  user: { id: string; telegramId: bigint };
+  user: { id: string; telegramId: bigint | null };
 }
 
 interface DealSubscriptionDelegate {
   findMany(args: unknown): Promise<DealSubscriptionUser[]>;
+}
+
+interface NotificationUser {
+  id: string;
+  telegramId: bigint | null;
+  zaloUserId: string | null;
 }
 
 /**
@@ -31,6 +38,7 @@ export class NotificationsService {
   constructor(
     @InjectBot() private readonly bot: Telegraf<Context>,
     private readonly prisma: PrismaService,
+    private readonly zalo: ZaloService,
   ) {}
 
 
@@ -53,7 +61,7 @@ export class NotificationsService {
       'Đơn cần được sàn xác nhận sau 1.5-3 tháng. Khi duyệt, tiền sẽ chuyển sang số dư có thể rút.',
     ].join('\n');
 
-    await this.send(Number(tx.user.telegramId), message);
+    await this.sendToUser(tx.user, message);
   }
 
   async notifyTransactionApproved(transactionId: string): Promise<void> {
@@ -75,7 +83,7 @@ export class NotificationsService {
       'Gõ /balance để xem số dư hoặc /withdraw để rút tiền.',
     ].join('\n');
 
-    await this.send(Number(tx.user.telegramId), message);
+    await this.sendToUser(tx.user, message);
   }
 
   async notifyTransactionRejected(transactionId: string): Promise<void> {
@@ -98,7 +106,7 @@ export class NotificationsService {
       'Lý do thường gặp: đơn bị huỷ/hoàn hàng, mua giá khuyến mãi không tính hoa hồng, hoặc cookie tracking không match. Đừng buồn — đơn sau sẽ tracking ổn hơn 💪',
     ].join('\n');
 
-    await this.send(Number(tx.user.telegramId), message);
+    await this.sendToUser(tx.user, message);
   }
 
   async notifyPayoutPaid(payoutId: string): Promise<void> {
@@ -121,7 +129,7 @@ export class NotificationsService {
       .filter(Boolean)
       .join('\n');
 
-    await this.send(Number(payout.user.telegramId), message);
+    await this.sendToUser(payout.user, message);
   }
 
   async notifyPayoutCancelled(payoutId: string): Promise<void> {
@@ -142,12 +150,12 @@ export class NotificationsService {
       .filter(Boolean)
       .join('\n');
 
-    await this.send(Number(payout.user.telegramId), message);
+    await this.sendToUser(payout.user, message);
   }
 
   async broadcastToActiveUsers(text: string): Promise<BroadcastResult> {
     const users = await this.prisma.user.findMany({
-      where: { isBlocked: false },
+      where: { isBlocked: false, telegramId: { not: null } },
       select: { id: true, telegramId: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -160,6 +168,10 @@ export class NotificationsService {
     };
 
     for (const user of users) {
+      if (!user.telegramId) {
+        result.failed += 1;
+        continue;
+      }
       const status = await this.sendBroadcastMessage(
         Number(user.telegramId),
         text,
@@ -199,7 +211,7 @@ export class NotificationsService {
         isEnabled: true,
         category: 'all',
         merchant: { in: merchants },
-        user: { isBlocked: false },
+        user: { isBlocked: false, telegramId: { not: null } },
       },
       select: {
         user: { select: { id: true, telegramId: true } },
@@ -208,9 +220,10 @@ export class NotificationsService {
     });
     const userMap = new Map<
       string,
-      { id: string; telegramId: bigint }
+      { id: string; telegramId: bigint | null }
     >();
     for (const subscription of subscriptions) {
+      if (!subscription.user.telegramId) continue;
       userMap.set(subscription.user.id, subscription.user);
     }
     const users = Array.from(userMap.values());
@@ -223,6 +236,10 @@ export class NotificationsService {
     };
 
     for (const user of users) {
+      if (!user.telegramId) {
+        result.failed += 1;
+        continue;
+      }
       const status = await this.sendBroadcastMessage(
         Number(user.telegramId),
         text,
@@ -281,6 +298,30 @@ export class NotificationsService {
     });
 
     return sum._sum.userShare ?? 0;
+  }
+
+  private async sendToUser(user: NotificationUser, text: string): Promise<void> {
+    let hasTarget = false;
+
+    if (user.telegramId) {
+      hasTarget = true;
+      await this.send(Number(user.telegramId), text);
+    }
+
+    if (user.zaloUserId) {
+      hasTarget = true;
+      const ok = await this.zalo.sendMessage({
+        chatId: user.zaloUserId,
+        text,
+      });
+      if (!ok) {
+        this.logger.warn(`Send Zalo notification to user=${user.id} failed`);
+      }
+    }
+
+    if (!hasTarget) {
+      this.logger.warn(`Notification skipped: user=${user.id} has no channel id`);
+    }
   }
 
   private async send(chatId: number, text: string): Promise<void> {

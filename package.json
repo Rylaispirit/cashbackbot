@@ -21,6 +21,7 @@
     "test:at": "ts-node -T scripts/test-accesstrade.ts",
     "launch:check": "ts-node -T scripts/launch-readiness.ts",
     "telegram:set-commands": "ts-node -T scripts/set-telegram-commands.ts",
+    "zalo:smoke": "ts-node -T scripts/zalo-smoke.ts",
     "reconcile:alibo": "ts-node -T scripts/reconcile-alibo-csv.ts",
     "backfill:external-tx-id": "ts-node -T scripts/backfill-external-tx-id.ts",
     "alibo:capture-session": "ts-node -T scripts/alibo-capture-session.ts",

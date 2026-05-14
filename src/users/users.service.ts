@@ -9,6 +9,11 @@ interface UpsertTelegramUserInput {
   lastName?: string;
 }
 
+interface UpsertZaloUserInput {
+  zaloUserId: string;
+  displayName?: string;
+}
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -37,6 +42,19 @@ export class UsersService {
   async findByTelegramId(telegramId: number | bigint): Promise<User | null> {
     return this.prisma.user.findUnique({
       where: { telegramId: BigInt(telegramId) },
+    });
+  }
+
+  async upsertZaloUser(input: UpsertZaloUserInput): Promise<User> {
+    return this.prisma.user.upsert({
+      where: { zaloUserId: input.zaloUserId },
+      update: {
+        firstName: input.displayName ?? undefined,
+      },
+      create: {
+        zaloUserId: input.zaloUserId,
+        firstName: input.displayName,
+      },
     });
   }
 

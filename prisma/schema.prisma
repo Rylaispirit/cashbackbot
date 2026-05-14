@@ -11,10 +11,11 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ===== User (Telegram) =====
+// ===== User (multi-channel: Telegram / Zalo) =====
 model User {
   id             String   @id @default(cuid())
-  telegramId     BigInt   @unique
+  telegramId     BigInt?  @unique
+  zaloUserId     String?  @unique
   username       String?
   firstName      String?
   lastName       String?

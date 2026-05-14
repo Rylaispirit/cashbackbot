@@ -17,6 +17,7 @@ import { AffiliateService } from '../affiliate/affiliate.service';
 import {
   extractFirstSupportedUrl,
   labelMerchant,
+  networkOf,
 } from '../affiliate/url-detector';
 import { RateLimitService } from '../telegram/rate-limit.service';
 import { ZaloService } from './zalo.service';
@@ -119,18 +120,35 @@ export class ZaloController {
       return { ok: true };
     }
 
+    const isAliboLink = networkOf(detected.merchant) === 'alibo';
+
     try {
+      if (isAliboLink) {
+        await this.zalo.sendMessage({
+          chatId,
+          text: [
+            `⏳ Đang tạo link chiết khấu ${labelMerchant(detected.merchant)} cho bạn...`,
+            'Quá trình này có thể mất 10-30 giây. Bot sẽ gửi link ngay khi tạo xong.',
+          ].join('\n'),
+        });
+      }
+
       const result = await this.affiliate.createAffiliateLink({
         userId: user.id,
         originalUrl: detected.url,
       });
+      const cashbackUrl = isAliboLink
+        ? this.buildAliboOpenAppUrl(result.link.subId) ?? result.link.affiliateUrl
+        : result.link.affiliateUrl;
       const lines = [
         `🛒 Sàn: ${labelMerchant(detected.merchant)}`,
         '',
-        '🔗 Link cashback của bạn:',
-        result.link.affiliateUrl,
+        isAliboLink ? '📱 Link cashback mở app Taobao:' : '🔗 Link cashback của bạn:',
+        cashbackUrl,
         '',
-        '⚠️ Mở link trên rồi mua hàng để bot tracking được.',
+        isAliboLink
+          ? 'Bấm link trên rồi chọn "Mở app Taobao". Hãy mua trong phiên đó để hệ thống tracking cashback.'
+          : '⚠️ Mở link trên rồi mua hàng để bot tracking được.',
       ];
       if (result.notice) lines.push('', result.notice);
       await this.zalo.sendMessage({ chatId, text: lines.join('\n') });
@@ -145,6 +163,23 @@ export class ZaloController {
     }
 
     return { ok: true };
+  }
+
+  private buildAliboOpenAppUrl(subId: string): string | null {
+    const publicBaseUrl =
+      this.config.get<string>('TAOBAO_OPEN_BASE_URL')?.trim() ||
+      this.config.get<string>('PUBLIC_BASE_URL')?.trim() ||
+      'https://go.1688vn.com';
+
+    try {
+      const base = new URL(publicBaseUrl);
+      base.pathname = `/api/open/taobao/${encodeURIComponent(subId)}`;
+      base.search = '';
+      base.hash = '';
+      return base.toString();
+    } catch {
+      return null;
+    }
   }
 
   private async handleCommand(

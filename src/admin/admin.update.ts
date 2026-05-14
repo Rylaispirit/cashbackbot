@@ -2,6 +2,7 @@ import { Update, Command, Ctx } from 'nestjs-telegraf';
 import { Context } from 'telegraf';
 
 import { TransactionStatus } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AdminGuard } from './admin.guard';
@@ -17,6 +18,8 @@ import {
 
 @Update()
 export class AdminUpdate {
+  private readonly logger = new Logger(AdminUpdate.name);
+
   constructor(
     private readonly guard: AdminGuard,
     private readonly admin: AdminService,
@@ -938,6 +941,15 @@ export class AdminUpdate {
   private assertAdmin(ctx: Context): boolean {
     const id = ctx.from?.id;
     if (!id || !this.guard.isAdmin(id)) {
+      this.logger.warn(`Blocked admin command from telegramId=${id ?? 'unknown'}`);
+      void ctx
+        .reply(
+          [
+            'Bạn chưa có quyền dùng lệnh admin trên Telegram.',
+            'Nếu đây là tài khoản admin, hãy kiểm tra biến TELEGRAM_ADMIN_IDS có đúng Telegram user ID của bạn không.',
+          ].join('\n'),
+        )
+        .catch(() => undefined);
       return false;
     }
     return true;

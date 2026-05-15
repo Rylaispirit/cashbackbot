@@ -405,6 +405,7 @@ function buildAdminMenuMessage(): string {
     '/admin_scan_deals [limit] - quét deal Shopee từ Accesstrade',
     '',
     'Alibo sync:',
+    '/admin_alibo_auto_match [days] [dry|apply] - auto-match HIGH-confidence orders',
     '/admin_alibo_sync [days] - sync đơn từ trang Alibo',
     '/admin_alibo_orders [unmatched|matched|all] - xem đơn Alibo đã sync',
     '/admin_alibo_order <id> - chi tiết 1 đơn Alibo',

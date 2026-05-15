@@ -591,7 +591,7 @@ export class AliboOrdersService {
             where: { id: existing.id },
             data: {
               externalTxId,
-              rawPayload: migratedRaw,
+              rawPayload: migratedRaw as any,
             },
           });
         }

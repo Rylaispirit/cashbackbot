@@ -1,4 +1,4 @@
-import { Update, Command, Ctx } from 'nestjs-telegraf';
+import { Update, Command, Hears, Ctx } from 'nestjs-telegraf';
 import { Context } from 'telegraf';
 
 import { TransactionStatus } from '@prisma/client';
@@ -71,6 +71,81 @@ export class AdminUpdate {
         '/admin_alibo_match <subId_prefix> <orderId> <commission_report> [sale] [status] - tạo đơn manual',
       ].join('\n'),
     );
+  }
+
+  /**
+   * Fallback for Telegram clients that send commands as plain text or include
+   * the bot username, e.g. /admin@chotdeal_bot. This also protects admin
+   * commands from decorator ordering issues with generic text handlers.
+   */
+  @Hears(/^\/admin(?:_[a-z0-9]+)?(?:@\w+)?(?:\s|$)/i)
+  async onAdminTextFallback(@Ctx() ctx: Context) {
+    const command = parseCommandName(ctx);
+    switch (command) {
+      case 'admin':
+        return this.onAdmin(ctx);
+      case 'admin_broadcast_test':
+        return this.onBroadcastTest(ctx);
+      case 'admin_broadcast':
+        return this.onBroadcast(ctx);
+      case 'admin_deal_test':
+        return this.onDealTest(ctx);
+      case 'admin_deal':
+        return this.onDeal(ctx);
+      case 'admin_deal_send':
+        return this.onDealSend(ctx);
+      case 'admin_deals':
+        return this.onDeals(ctx);
+      case 'admin_deal_subscribers':
+        return this.onDealSubscribers(ctx);
+      case 'admin_deal_off':
+        return this.onDealOff(ctx);
+      case 'admin_deal_on':
+        return this.onDealOn(ctx);
+      case 'admin_scan_deals':
+        return this.onScanDeals(ctx);
+      case 'admin_deal_candidates':
+        return this.onDealCandidates(ctx);
+      case 'admin_deal_approve':
+        return this.onDealApprove(ctx);
+      case 'admin_deal_reject':
+        return this.onDealReject(ctx);
+      case 'admin_stats':
+        return this.onStats(ctx);
+      case 'admin_links':
+        return this.onLinks(ctx);
+      case 'admin_link':
+        return this.onLinkDetail(ctx);
+      case 'admin_payouts':
+        return this.onPayouts(ctx);
+      case 'admin_paid':
+        return this.onPaid(ctx);
+      case 'admin_cancel':
+        return this.onCancel(ctx);
+      case 'admin_user':
+        return this.onUser(ctx);
+      case 'admin_block':
+        return this.onBlock(ctx);
+      case 'admin_unblock':
+        return this.onUnblock(ctx);
+      case 'admin_recent':
+        return this.onRecent(ctx);
+      case 'admin_alibo_sync':
+        return this.onAliboSync(ctx);
+      case 'admin_alibo_orders':
+        return this.onAliboOrders(ctx);
+      case 'admin_alibo_order':
+        return this.onAliboOrderDetail(ctx);
+      case 'admin_alibo_match_order':
+        return this.onAliboMatchOrder(ctx);
+      case 'admin_alibo_pending':
+        return this.onAliboPending(ctx);
+      case 'admin_alibo_match':
+        return this.onAliboMatch(ctx);
+      default:
+        if (!this.assertAdmin(ctx)) return;
+        await ctx.reply('Lệnh admin chưa hỗ trợ. Gõ /admin để xem danh sách lệnh.');
+    }
   }
 
   @Command('admin_broadcast_test')
@@ -969,6 +1044,12 @@ function parseArg(ctx: Context): string | null {
   if (!msg?.text) return null;
   const parts = msg.text.split(/\s+/);
   return parts[1] ?? null;
+}
+
+function parseCommandName(ctx: Context): string | null {
+  const msg = ctx.message as { text?: string } | undefined;
+  const match = msg?.text?.match(/^\/([a-z0-9_]+)(?:@\w+)?(?:\s|$)/i);
+  return match?.[1]?.toLowerCase() ?? null;
 }
 
 function parseRestArg(ctx: Context): string | null {

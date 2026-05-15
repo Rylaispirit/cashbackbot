@@ -90,7 +90,7 @@ export class ZaloLinkController {
       const isAliboLink = networkOf(detected.merchant) === 'alibo';
       const cashbackUrl = isAliboLink
         ? this.buildAliboOpenAppUrl(result.link.subId) ?? result.link.affiliateUrl
-        : result.link.affiliateUrl;
+        : this.buildOpenLinkUrl(result.link.subId) ?? result.link.affiliateUrl;
       const message = [
         `🛒 Sàn: ${labelMerchant(detected.merchant)}`,
         '',
@@ -106,6 +106,9 @@ export class ZaloLinkController {
         .join('\n');
 
       const sent = await this.zalo.sendMessage({ chatId, text: message });
+      this.logger.log(
+        `Zalo link form created merchant=${detected.merchant} subId=${result.link.subId} sent=${sent}`,
+      );
       if (!sent) {
         this.logger.warn(`Zalo form created link but send failed chat=${chatId}`);
       }
@@ -156,6 +159,24 @@ export class ZaloLinkController {
       signature,
     });
     if (!ok) throw new UnauthorizedException('Invalid Zalo link form token');
+  }
+
+  private buildOpenLinkUrl(subId: string): string | null {
+    const publicBaseUrl =
+      this.config.get<string>('ZALO_PUBLIC_BASE_URL')?.trim() ||
+      this.config.get<string>('TAOBAO_OPEN_BASE_URL')?.trim() ||
+      this.config.get<string>('PUBLIC_BASE_URL')?.trim() ||
+      'https://go.1688vn.com';
+
+    try {
+      const base = new URL(publicBaseUrl);
+      base.pathname = `/api/open/link/${encodeURIComponent(subId)}`;
+      base.search = '';
+      base.hash = '';
+      return base.toString();
+    } catch {
+      return null;
+    }
   }
 
   private buildAliboOpenAppUrl(subId: string): string | null {

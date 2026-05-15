@@ -7,6 +7,22 @@ import { PrismaService } from '../prisma/prisma.service';
 export class AliboOpenController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @Get('link/:subId')
+  async openLink(@Param('subId') subId: string, @Res() res: Response) {
+    const link = await this.prisma.link.findUnique({
+      where: { subId },
+      select: {
+        affiliateUrl: true,
+      },
+    });
+
+    if (!link) {
+      throw new NotFoundException('Link cashback không tồn tại');
+    }
+
+    res.redirect(302, link.affiliateUrl);
+  }
+
   @Get('taobao/:subId')
   async openTaobao(@Param('subId') subId: string, @Res() res: Response) {
     const link = await this.prisma.link.findUnique({

@@ -181,7 +181,7 @@ export class ZaloController {
       });
       const cashbackUrl = isAliboLink
         ? this.buildAliboOpenAppUrl(result.link.subId) ?? result.link.affiliateUrl
-        : result.link.affiliateUrl;
+        : this.buildOpenLinkUrl(result.link.subId) ?? result.link.affiliateUrl;
       const lines = [
         `🛒 Sàn: ${labelMerchant(input.merchant)}`,
         '',
@@ -193,7 +193,13 @@ export class ZaloController {
           : '⚠️ Mở link trên rồi mua hàng để bot tracking được.',
       ];
       if (result.notice) lines.push('', result.notice);
-      await this.zalo.sendMessage({ chatId: input.chatId, text: lines.join('\n') });
+      const sent = await this.zalo.sendMessage({
+        chatId: input.chatId,
+        text: lines.join('\n'),
+      });
+      this.logger.log(
+        `Zalo createAffiliateLink ok merchant=${input.merchant} subId=${result.link.subId} sent=${sent}`,
+      );
     } catch (err) {
       this.logger.error(
         `Zalo createAffiliateLink failed: ${(err as Error).message}`,
@@ -202,6 +208,24 @@ export class ZaloController {
         chatId: input.chatId,
         text: `❌ ${(err as Error).message}`,
       });
+    }
+  }
+
+  private buildOpenLinkUrl(subId: string): string | null {
+    const publicBaseUrl =
+      this.config.get<string>('ZALO_PUBLIC_BASE_URL')?.trim() ||
+      this.config.get<string>('TAOBAO_OPEN_BASE_URL')?.trim() ||
+      this.config.get<string>('PUBLIC_BASE_URL')?.trim() ||
+      'https://go.1688vn.com';
+
+    try {
+      const base = new URL(publicBaseUrl);
+      base.pathname = `/api/open/link/${encodeURIComponent(subId)}`;
+      base.search = '';
+      base.hash = '';
+      return base.toString();
+    } catch {
+      return null;
     }
   }
 

@@ -61,7 +61,8 @@ export class AdminUpdate {
         '/admin_deal_reject <candidate_id> - bo qua deal',
         '',
         'Alibo sync:',
-        '/admin_alibo_sync [days] - sync don tu trang Alibo',
+        '/admin_alibo_sync [days] - sync don tu trang Alibo (chi pull du lieu)',
+        '/admin_alibo_auto_match [days] [dry|apply] - auto-match HIGH-confidence orders',
         '/admin_alibo_orders [unmatched|matched|all] - xem don Alibo da sync',
         '/admin_alibo_order <id> - chi tiet 1 don Alibo',
         '/admin_alibo_match_order <order_prefix> <subId_prefix> [status] [commission_vnd] - match don sync vao user',
@@ -132,6 +133,8 @@ export class AdminUpdate {
         return this.onRecent(ctx);
       case 'admin_alibo_sync':
         return this.onAliboSync(ctx);
+      case 'admin_alibo_auto_match':
+        return this.onAliboAutoMatch(ctx);
       case 'admin_alibo_orders':
         return this.onAliboOrders(ctx);
       case 'admin_alibo_order':
@@ -683,6 +686,10 @@ export class AdminUpdate {
           `Cập nhật: ${result.updated}`,
           `Bỏ qua: ${result.skipped}`,
           '',
+          '💡 Sync chỉ pull dữ liệu, không cộng tiền. Chạy:',
+          '   /admin_alibo_auto_match 7 dry   — preview các đơn match được',
+          '   /admin_alibo_auto_match 7 apply — apply HIGH-confidence',
+          '',
           top.length > 0 ? 'Đơn mới/cập nhật gần nhất:' : 'Chưa có đơn trong khoảng này.',
           ...top.map(formatAliboOrderLine),
           '',
@@ -693,6 +700,80 @@ export class AdminUpdate {
       );
     } catch (err) {
       await ctx.reply(`❌ Sync Alibo thất bại: ${(err as Error).message}`);
+    }
+  }
+
+  @Command('admin_alibo_auto_match')
+  async onAliboAutoMatch(@Ctx() ctx: Context) {
+    if (!this.assertAdmin(ctx)) return;
+    const raw = parseRestArg(ctx) ?? '';
+    const tokens = raw.split(/\s+/).filter(Boolean);
+    let days = 7;
+    let mode: 'dry' | 'apply' = 'dry';
+    for (const tok of tokens) {
+      const lower = tok.toLowerCase();
+      if (lower === 'dry') mode = 'dry';
+      else if (lower === 'apply' || lower === '--apply') mode = 'apply';
+      else if (lower === '--dry') mode = 'dry';
+      else if (/^\d+$/.test(lower)) days = parseInt(lower, 10);
+    }
+    if (Number.isNaN(days) || days < 1 || days > 365) {
+      await ctx.reply('Cú pháp: /admin_alibo_auto_match [days] [dry|apply]');
+      return;
+    }
+
+    await ctx.reply(`⏳ Đang ${mode === 'apply' ? 'auto-match + apply' : 'preview match'} ${days} ngày...`);
+    try {
+      const result = await this.aliboOrders.autoMatchOrders({ days, apply: mode === 'apply' });
+      const lines = [
+        `🎯 Alibo auto-match ${mode === 'apply' ? '(APPLY)' : '(DRY)'} ${days}d`,
+        '',
+        `Scanned orders: ${result.scanned}`,
+        `  HIGH (auto-applicable): ${result.high.length}`,
+        `  MEDIUM (review):        ${result.medium.length}`,
+        `  LOW (cannot match):     ${result.low.length}`,
+      ];
+      if (mode === 'apply') {
+        lines.push(
+          '',
+          'Apply results:',
+          `  Created:        ${result.applied.matched}`,
+          `  Status updated: ${result.applied.statusUpdated}`,
+          `  Skipped:        ${result.applied.skipped}`,
+          `  Errors:         ${result.applied.errors}`,
+          `  Notify queued:   ${result.applied.notifications.length}`,
+        );
+        for (const item of result.applied.notifications) {
+          this.notifyTransaction(item.transactionId, item.status);
+        }
+      }
+      const sample = (label: string, list: typeof result.high) => {
+        if (list.length === 0) return null;
+        return [
+          '',
+          `${label}:`,
+          ...list.slice(0, 5).map((c) => {
+            const sub = c.link?.subId ?? '-';
+            return `  • order=${c.order.orderId.slice(0, 12)} item=${c.itemId ?? '-'} → subId=${sub} (${c.reason})`;
+          }),
+          list.length > 5 ? `  ... +${list.length - 5} more` : '',
+        ].filter(Boolean) as string[];
+      };
+      const high = sample('HIGH', result.high);
+      const medium = sample('MEDIUM', result.medium);
+      const low = sample('LOW (top reasons)', result.low);
+      if (high) lines.push(...high);
+      if (medium) lines.push(...medium);
+      if (low) lines.push(...low);
+      lines.push(
+        '',
+        mode === 'apply'
+          ? 'Tip: dùng /admin_alibo_orders unmatched để xem MEDIUM/LOW chưa match.'
+          : 'Tip: gõ /admin_alibo_auto_match ' + days + ' apply để apply HIGH-confidence.',
+      );
+      await ctx.reply(lines.join('\n'));
+    } catch (err) {
+      await ctx.reply(`❌ Auto-match Alibo thất bại: ${(err as Error).message}`);
     }
   }
 

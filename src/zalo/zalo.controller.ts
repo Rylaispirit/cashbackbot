@@ -312,13 +312,15 @@ export class ZaloController {
 
     const lines = input.fromUnsupported
       ? [
-          '⚠️ Zalo đã chuyển link bạn gửi thành "thẻ xem trước" nên bot không đọc được URL.',
+          '⚠️ Zalo đã chuyển link Shopee/Taobao thành "thẻ xem trước" nên bot không đọc được URL.',
           '',
-          '✅ Cách 1 — nhanh nhất: xoá phần "https://" ở đầu rồi gửi lại.',
-          '   Ví dụ: vn.shp.ee/Qbzyvgp9  (KHÔNG có https://)',
-          '   ChotDeal sẽ tự nhận link và tạo cashback ngay.',
+          '✅ Cách 1 — nhanh nhất: xoá "https://" rồi gửi lại',
+          '   vn.shp.ee/Qbzyvgp9   (KHÔNG có https://)',
           '',
-          '✅ Cách 2: bấm trang dưới đây để dán nguyên link (có https:// cũng được):',
+          '✅ Cách 2: thêm 1 dấu chấm trước link để Zalo không tự tạo card',
+          '   .https://vn.shp.ee/Qbzyvgp9',
+          '',
+          '✅ Cách 3: bấm trang dưới đây để dán nguyên link (an toàn nhất, có https:// cũng được):',
         ]
       : [
           'Bấm trang dưới đây để dán nguyên link sản phẩm.',
@@ -440,9 +442,16 @@ export class ZaloController {
       return cleaned;
     }
 
-    // 2) Scheme-less but supported bare hosts (Zalo sometimes strips scheme)
-    const detectedBare = extractFirstSupportedUrl(raw);
-    if (detectedBare) return detectedBare.url;
+    // 2) Scheme-less bare hosts buried in JSON strings (e.g. {"url":"vn.shp.ee/x"})
+    //    extractFirstSupportedUrl's bare-host regex requires a space/paren prefix
+    //    which JSON strings don't satisfy (preceded by `"`), so we scan directly.
+    const bareHostRegex =
+      /((?:www\.)?(?:shopee\.vn|shopee\.com|shp\.ee|vn\.shp\.ee|lazada\.vn|lzd\.co|tiki\.vn|tiktok\.com|vt\.tiktok\.com|taobao\.com|tb\.cn|m\.taobao\.com|world\.taobao\.com|tmall\.com|tmall\.hk|detail\.tmall\.com|1688\.com|m\.1688\.com)[^\s<>"'\\]*)/i;
+    const bareMatch = raw.match(bareHostRegex);
+    if (bareMatch?.[1]) {
+      const cleaned = bareMatch[1].replace(/[.,;:!?)\]]+$/, '');
+      return /^https?:\/\//i.test(cleaned) ? cleaned : `https://${cleaned}`;
+    }
 
     return null;
   }
@@ -524,6 +533,7 @@ export class ZaloController {
     return Math.abs(h);
   }
 }
+
 
 function formatVnd(amount: number): string {
   return `${amount.toLocaleString('vi-VN')}đ`;

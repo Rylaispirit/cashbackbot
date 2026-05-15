@@ -376,11 +376,38 @@ export class ZaloController {
    * Zalo co the gui link trong nhieu field khac nhau tuy loai message.
    * Neu user bam Share truc tiep, payload co the khong co text nao ca.
    */
-  private extractMessageText(update: ZaloUpdate): string {
+  private extractMessageText(update: ZaloUpdate): string | null {
     const message = update.message as Record<string, unknown> | undefined;
     const payload = message?.payload as Record<string, unknown> | undefined;
+
+    if (typeof message?.text === 'string' && message.text.trim()) {
+      return message.text.trim();
+    }
+
+    if (update.event_name === 'message.unsupported.received') {
+      const embeddedUrl = this.tryExtractEmbeddedUrl(update);
+      if (embeddedUrl) return embeddedUrl;
+
+      const attachment = message?.attachment as
+        | Record<string, unknown>
+        | undefined;
+      const attachmentPayload = attachment?.payload as
+        | Record<string, unknown>
+        | undefined;
+
+      return (
+        this.firstTextCandidate([
+          attachmentPayload?.url,
+          attachment?.url,
+          payload?.url,
+          message?.url,
+          ...this.extractAttachmentTexts(message?.attachment),
+          ...this.extractAttachmentTexts(message?.attachments),
+        ]) ?? null
+      );
+    }
+
     const candidates = [
-      message?.text,
       message?.content,
       message?.caption,
       message?.description,
@@ -390,16 +417,10 @@ export class ZaloController {
       (update as Record<string, unknown>).content,
     ];
 
+    candidates.push(...this.extractAttachmentTexts(message?.attachment));
     candidates.push(...this.extractAttachmentTexts(message?.attachments));
 
-    const text =
-      candidates
-        .filter((value): value is string => typeof value === 'string')
-        .map((value) => value.trim())
-        .find((value) => value.length > 0) ?? '';
-    if (text) return text;
-
-    return this.tryExtractEmbeddedUrl(update) ?? '';
+    return this.firstTextCandidate(candidates) ?? this.tryExtractEmbeddedUrl(update);
   }
 
   private tryExtractEmbeddedUrl(update: ZaloUpdate): string | null {
@@ -409,10 +430,14 @@ export class ZaloController {
   }
 
   private extractAttachmentTexts(attachments: unknown): string[] {
-    if (!Array.isArray(attachments)) return [];
+    const items = Array.isArray(attachments)
+      ? attachments
+      : attachments
+        ? [attachments]
+        : [];
 
     const texts: string[] = [];
-    for (const item of attachments) {
+    for (const item of items) {
       if (!item || typeof item !== 'object') continue;
       const attachment = item as Record<string, unknown>;
       const payload = attachment.payload as Record<string, unknown> | undefined;
@@ -433,6 +458,15 @@ export class ZaloController {
       }
     }
     return texts;
+  }
+
+  private firstTextCandidate(values: unknown[]): string | null {
+    return (
+      values
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .find((value) => value.length > 0) ?? null
+    );
   }
 
   /**

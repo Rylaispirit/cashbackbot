@@ -40,7 +40,14 @@ PUBLIC_BASE_URL=https://cashbackbot-production.up.railway.app
 TAOBAO_OPEN_BASE_URL=https://go.1688vn.com
 TELEGRAM_WEBHOOK_PATH=/telegram/webhook/chotdeal-prod-20260505
 TELEGRAM_WEBHOOK_SECRET_TOKEN=<random-secret>
+ADMIN_WEB_TOKEN=<random-admin-web-token>
 ```
+
+Web admin doc nhanh:
+
+- URL: `https://<domain>/api/admin/web`
+- Dang nhap bang `ADMIN_WEB_TOKEN`.
+- Trang web admin chi nen dung de xem link/don/thong ke. Cac thao tac cong tien, match Alibo, broadcast van nen lam qua Telegram admin command de tranh bam nham.
 
 ## 2. Database
 

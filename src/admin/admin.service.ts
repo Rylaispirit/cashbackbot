@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { Transaction, TransactionStatus, PayoutStatus } from '@prisma/client';
+import {
+  Transaction,
+  TransactionStatus,
+  PayoutStatus,
+} from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -21,6 +25,16 @@ type ChannelStatsRow = {
   txPending: number | bigint;
   txApproved: number | bigint;
   approvedCashback: number | bigint | null;
+};
+
+type LinkListFilter = {
+  channel?: string;
+  merchant?: string;
+};
+
+type TransactionListFilter = {
+  channel?: string;
+  status?: TransactionStatus;
 };
 
 @Injectable()
@@ -88,10 +102,19 @@ export class AdminService {
     });
   }
 
-  async listRecentTransactions(limit = 10) {
+  async listRecentTransactions(limit = 10, filter: TransactionListFilter = {}) {
+    const where: Record<string, any> = {};
+    if (filter.status) {
+      where.status = filter.status;
+    }
+    if (filter.channel && filter.channel !== 'all') {
+      where.link = { is: { channel: filter.channel } };
+    }
+
     return this.prisma.transaction.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
-      take: limit,
+      take: clampLimit(limit),
       include: {
         user: {
           select: {
@@ -111,10 +134,19 @@ export class AdminService {
     });
   }
 
-  async listRecentLinks(limit = 10) {
+  async listRecentLinks(limit = 10, filter: LinkListFilter = {}) {
+    const where: Record<string, any> = {};
+    if (filter.channel && filter.channel !== 'all') {
+      where.channel = filter.channel;
+    }
+    if (filter.merchant && filter.merchant !== 'all') {
+      where.merchant = filter.merchant;
+    }
+
     return this.prisma.link.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
-      take: limit,
+      take: clampLimit(limit),
       include: {
         user: {
           select: {
@@ -136,6 +168,36 @@ export class AdminService {
             createdAt: true,
           },
         },
+      },
+    });
+  }
+
+  async listAliboOrdersForAdmin(
+    matchStatus: 'UNMATCHED' | 'MATCHED' | 'ALL' = 'UNMATCHED',
+    limit = 30,
+  ): Promise<AliboOrder[]> {
+    const where =
+      matchStatus === 'ALL' ? {} : { matchStatus };
+
+    return (this.prisma as any).aliboOrder.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: clampLimit(limit),
+      include: {
+        matchedLink: {
+          include: {
+            user: {
+              select: {
+                telegramId: true,
+                zaloUserId: true,
+                username: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        },
+        transaction: true,
       },
     });
   }
@@ -573,4 +635,9 @@ function decimalToString(value: { toString(): string } | null): string | null {
 function toNumber(value: number | bigint | null | undefined): number {
   if (typeof value === 'bigint') return Number(value);
   return value ?? 0;
+}
+
+function clampLimit(value: number): number {
+  if (!Number.isFinite(value)) return 10;
+  return Math.min(Math.max(Math.trunc(value), 1), 100);
 }

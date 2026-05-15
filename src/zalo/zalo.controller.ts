@@ -42,6 +42,7 @@ Bot hoàn tiền cashback cho đơn Shopee, Lazada, Tiki, TikTok Shop, Taobao, 1
 🎮 Lệnh hữu ích:
 /balance — xem số dư
 /history — lịch sử giao dịch
+/link — mở trang dán link khi Zalo không gửi link trong chat
 /setbank — cài tài khoản nhận tiền (tạm thời qua Telegram)
 /withdraw — yêu cầu rút tiền (tạm thời qua Telegram)
 /help — xem lại hướng dẫn`;
@@ -122,35 +123,17 @@ export class ZaloController {
     });
 
     if (!text) {
-      const formUrl = buildZaloLinkFormUrl(this.config, {
-        chatId,
-        zaloUserId,
-      });
-      await this.zalo.sendMessage({
-        chatId,
-        text: formUrl
-          ? [
-              'Zalo đã chuyển link bạn gửi thành "thẻ chia sẻ" mà bot không đọc được.',
-              '',
-              'Cách nhanh nhất: gửi lại và bỏ phần https://, ví dụ:',
-              'link vn.shp.ee/Qbzyvgp9',
-              '',
-              'Hoặc bấm trang dưới đây, dán link Shopee/Lazada vào đó, ChotDeal sẽ tạo link cashback và gửi lại trong Zalo:',
-              formUrl,
-            ].join('\n')
-          : [
-              'Zalo đã chuyển link bạn gửi thành "thẻ chia sẻ" mà bot không đọc được.',
-              '',
-              'Bạn hãy gửi lại và bỏ phần https://, ví dụ:',
-              'link vn.shp.ee/Qbzyvgp9',
-              'Tạo link cashback www.lazada.vn/...',
-            ].join('\n'),
-      });
+      await this.sendLinkFormInstruction({ chatId, zaloUserId, fromUnsupported: true });
       return { ok: true };
     }
 
     if (text.startsWith('/')) {
-      return this.handleCommand(text, chatId, user.id);
+      return this.handleCommand(text, chatId, user.id, zaloUserId);
+    }
+
+    if (this.isLinkFormRequest(text)) {
+      await this.sendLinkFormInstruction({ chatId, zaloUserId });
+      return { ok: true };
     }
 
     const detected = extractFirstSupportedUrl(text);
@@ -243,11 +226,14 @@ export class ZaloController {
     text: string,
     chatId: string,
     userId: string,
+    zaloUserId: string,
   ): Promise<{ ok: true }> {
     const cmd = text.split(/\s+/)[0]?.toLowerCase();
 
     if (cmd === '/start' || cmd === '/help') {
       await this.zalo.sendMessage({ chatId, text: WELCOME_MESSAGE });
+    } else if (cmd === '/link') {
+      await this.sendLinkFormInstruction({ chatId, zaloUserId });
     } else if (cmd === '/balance') {
       const balance = await this.users.getBalanceSummary(userId);
       await this.zalo.sendMessage({
@@ -290,6 +276,50 @@ export class ZaloController {
     }
 
     return { ok: true };
+  }
+
+  private async sendLinkFormInstruction(input: {
+    chatId: string;
+    zaloUserId: string;
+    fromUnsupported?: boolean;
+  }): Promise<void> {
+    const formUrl = buildZaloLinkFormUrl(this.config, {
+      chatId: input.chatId,
+      zaloUserId: input.zaloUserId,
+    });
+
+    const lines = input.fromUnsupported
+      ? [
+          'Zalo đã chuyển link bạn gửi thành "thẻ chia sẻ" mà bot không đọc được.',
+          '',
+          'Cách ổn định nhất: bấm trang dưới đây, dán link Shopee/Lazada/Taobao vào đó, ChotDeal sẽ tạo link cashback và gửi lại trong Zalo:',
+        ]
+      : [
+          'Bấm trang dưới đây để dán link sản phẩm.',
+          'Cách này ổn định hơn gửi link trực tiếp trong chat Zalo.',
+        ];
+
+    if (formUrl) {
+      lines.push(formUrl);
+    } else {
+      lines.push(
+        '',
+        'Hiện chưa tạo được trang dán link. Bạn thử gửi dạng không có https://, ví dụ:',
+        'link vn.shp.ee/Qbzyvgp9',
+      );
+    }
+
+    await this.zalo.sendMessage({
+      chatId: input.chatId,
+      text: lines.join('\n'),
+    });
+  }
+
+  private isLinkFormRequest(text: string): boolean {
+    const normalized = text.trim().toLowerCase();
+    return ['link', 'tao link', 'tạo link', 'lay link', 'lấy link'].includes(
+      normalized,
+    );
   }
 
   /**

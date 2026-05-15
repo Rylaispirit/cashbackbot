@@ -312,9 +312,13 @@ export class ZaloController {
 
     const lines = input.fromUnsupported
       ? [
-          'Zalo không gửi nội dung link trực tiếp cho bot.',
+          '⚠️ Zalo đã chuyển link bạn gửi thành "thẻ xem trước" nên bot không đọc được URL.',
           '',
-          'Bấm trang dưới đây, dán nguyên link bạn vừa copy từ Shopee/Lazada/Taobao. Không cần bỏ https://.',
+          '✅ Cách 1 — nhanh nhất: xoá phần "https://" ở đầu rồi gửi lại.',
+          '   Ví dụ: vn.shp.ee/Qbzyvgp9  (KHÔNG có https://)',
+          '   ChotDeal sẽ tự nhận link và tạo cashback ngay.',
+          '',
+          '✅ Cách 2: bấm trang dưới đây để dán nguyên link (có https:// cũng được):',
         ]
       : [
           'Bấm trang dưới đây để dán nguyên link sản phẩm.',
@@ -425,8 +429,22 @@ export class ZaloController {
 
   private tryExtractEmbeddedUrl(update: ZaloUpdate): string | null {
     const raw = JSON.stringify(update);
-    const match = raw.match(/https?:\/\/[^\s"'<>\\)]+/i);
-    return match?.[0]?.replace(/[.,;:!?)\]]+$/, '') ?? null;
+
+    // 1) Scheme-prefixed URLs anywhere in payload
+    const httpMatch = raw.match(/https?:\/\/[^\s"'<>\\)]+/i);
+    if (httpMatch?.[0]) {
+      const cleaned = httpMatch[0].replace(/[.,;:!?)\]]+$/, '');
+      // Use bot URL detector to verify it's a supported merchant
+      const detected = extractFirstSupportedUrl(cleaned);
+      if (detected) return detected.url;
+      return cleaned;
+    }
+
+    // 2) Scheme-less but supported bare hosts (Zalo sometimes strips scheme)
+    const detectedBare = extractFirstSupportedUrl(raw);
+    if (detectedBare) return detectedBare.url;
+
+    return null;
   }
 
   private extractAttachmentTexts(attachments: unknown): string[] {

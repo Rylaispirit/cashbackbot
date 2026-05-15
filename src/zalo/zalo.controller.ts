@@ -35,7 +35,7 @@ Bot hoàn tiền cashback cho đơn Shopee, Lazada, Tiki, TikTok Shop, Taobao, 1
 3. Bot trả link cashback — mở link đó để mua
 4. Đơn được duyệt → tiền tự về ví trong bot
 
-Nếu Zalo không cho bot đọc link trực tiếp, ChotDeal sẽ gửi trang dán link riêng. Bạn chỉ cần dán nguyên link vừa copy, không cần sửa hay bỏ https://.
+Nếu Zalo hiện thẻ xem trước khi bạn dán link Shopee/Taobao, hãy xoá thẻ xem trước đó rồi gửi lại. Nếu vẫn lỗi, gõ /link để mở trang dán link riêng.
 
 🎮 Lệnh hữu ích:
 /balance — xem số dư
@@ -312,15 +312,14 @@ export class ZaloController {
 
     const lines = input.fromUnsupported
       ? [
-          '⚠️ Zalo đã chuyển link Shopee/Taobao thành "thẻ xem trước" nên bot không đọc được URL.',
+          '⚠️ Zalo đã chuyển link thành "thẻ xem trước" nên bot không đọc được URL.',
           '',
-          '✅ Cách 1 — nhanh nhất: xoá "https://" rồi gửi lại',
-          '   vn.shp.ee/Qbzyvgp9   (KHÔNG có https://)',
+          '✅ Cách 1 — dễ nhất: dán lại link, nếu Zalo hiện thẻ xem trước thì bấm xoá thẻ đó trước khi gửi.',
           '',
-          '✅ Cách 2: thêm 1 dấu chấm trước link để Zalo không tự tạo card',
-          '   .https://vn.shp.ee/Qbzyvgp9',
+          '✅ Cách 2: nếu muốn gửi dạng chữ, có thể xoá "https://" rồi gửi lại, ví dụ:',
+          '   vn.shp.ee/Qbzyvgp9',
           '',
-          '✅ Cách 3: bấm trang dưới đây để dán nguyên link (an toàn nhất, có https:// cũng được):',
+          '✅ Cách 3: bấm trang dưới đây để dán nguyên link (có https:// cũng được):',
         ]
       : [
           'Bấm trang dưới đây để dán nguyên link sản phẩm.',

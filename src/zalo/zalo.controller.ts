@@ -23,6 +23,7 @@ import {
 import { RateLimitService } from '../telegram/rate-limit.service';
 import { ZaloService } from './zalo.service';
 import { ZaloUpdate } from './zalo.types';
+import { buildZaloLinkFormUrl } from './zalo-link-form';
 
 const WELCOME_MESSAGE = `🎯 Chào mừng bạn đến với ChotDeal!
 
@@ -109,16 +110,26 @@ export class ZaloController {
     });
 
     if (!text) {
+      const formUrl = buildZaloLinkFormUrl(this.config, {
+        chatId,
+        zaloUserId,
+      });
       await this.zalo.sendMessage({
         chatId,
-        text: [
-          'Mình chưa đọc được link trong tin nhắn này.',
-          '',
-          'Nếu bạn vừa bấm nút Chia sẻ từ Shopee/Lazada, Zalo có thể không gửi nội dung link cho bot.',
-          'Bạn hãy bấm "Sao chép liên kết" rồi dán link dạng chữ vào đây, ví dụ:',
-          'https://shopee.vn/...',
-          'https://www.lazada.vn/...',
-        ].join('\n'),
+        text: formUrl
+          ? [
+              'Zalo chưa gửi nội dung link này cho bot.',
+              '',
+              'Bạn bấm trang dưới đây, dán link Shopee/Lazada vào đó, ChotDeal sẽ tạo link cashback và gửi lại trong Zalo:',
+              formUrl,
+            ].join('\n')
+          : [
+              'Mình chưa đọc được link trong tin nhắn này.',
+              '',
+              'Bạn hãy bấm "Sao chép liên kết" rồi dán link dạng chữ vào đây, ví dụ:',
+              'https://shopee.vn/...',
+              'https://www.lazada.vn/...',
+            ].join('\n'),
       });
       return { ok: true };
     }

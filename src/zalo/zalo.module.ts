@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ZaloController } from './zalo.controller';
+import { ZaloLinkController } from './zalo-link.controller';
 import { ZaloService } from './zalo.service';
 import { UsersModule } from '../users/users.module';
 import { AffiliateModule } from '../affiliate/affiliate.module';
@@ -16,7 +17,7 @@ import { TelegramModule } from '../telegram/telegram.module';
  */
 @Module({
   imports: [UsersModule, AffiliateModule, TelegramModule],
-  controllers: [ZaloController],
+  controllers: [ZaloController, ZaloLinkController],
   providers: [ZaloService],
   exports: [ZaloService],
 })

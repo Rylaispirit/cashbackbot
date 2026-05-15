@@ -86,13 +86,13 @@ export class ZaloController {
     }
 
     const message = update?.message;
-    if (!message?.text || !message.from?.id || !message.chat?.id) {
+    if (!message?.from?.id || !message.chat?.id) {
       return { ok: true };
     }
 
     const chatId = String(message.chat.id);
     const zaloUserId = String(message.from.id);
-    const text = String(message.text).trim();
+    const text = this.extractMessageText(update);
 
     // Rate limit
     if (!this.rateLimit.check(this.hashUserId(zaloUserId))) {
@@ -107,6 +107,21 @@ export class ZaloController {
       zaloUserId,
       displayName: message.from.display_name,
     });
+
+    if (!text) {
+      await this.zalo.sendMessage({
+        chatId,
+        text: [
+          'Mình chưa đọc được link trong tin nhắn này.',
+          '',
+          'Nếu bạn vừa bấm nút Chia sẻ từ Shopee/Lazada, Zalo có thể không gửi nội dung link cho bot.',
+          'Bạn hãy bấm "Sao chép liên kết" rồi dán link dạng chữ vào đây, ví dụ:',
+          'https://shopee.vn/...',
+          'https://www.lazada.vn/...',
+        ].join('\n'),
+      });
+      return { ok: true };
+    }
 
     if (text.startsWith('/')) {
       return this.handleCommand(text, chatId, user.id);
@@ -272,6 +287,61 @@ export class ZaloController {
       (body as Record<string, unknown>).secret_token as string ??
       null
     );
+  }
+
+  /**
+   * Zalo co the gui link trong nhieu field khac nhau tuy loai message.
+   * Neu user bam Share truc tiep, payload co the khong co text nao ca.
+   */
+  private extractMessageText(update: ZaloUpdate): string {
+    const message = update.message as Record<string, unknown> | undefined;
+    const payload = message?.payload as Record<string, unknown> | undefined;
+    const candidates = [
+      message?.text,
+      message?.content,
+      message?.caption,
+      message?.description,
+      payload?.text,
+      payload?.url,
+      (update as Record<string, unknown>).text,
+      (update as Record<string, unknown>).content,
+    ];
+
+    candidates.push(...this.extractAttachmentTexts(message?.attachments));
+
+    return (
+      candidates
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .find((value) => value.length > 0) ?? ''
+    );
+  }
+
+  private extractAttachmentTexts(attachments: unknown): string[] {
+    if (!Array.isArray(attachments)) return [];
+
+    const texts: string[] = [];
+    for (const item of attachments) {
+      if (!item || typeof item !== 'object') continue;
+      const attachment = item as Record<string, unknown>;
+      const payload = attachment.payload as Record<string, unknown> | undefined;
+      for (const value of [
+        attachment.url,
+        attachment.href,
+        attachment.title,
+        attachment.description,
+        payload?.url,
+        payload?.href,
+        payload?.text,
+        payload?.title,
+        payload?.description,
+      ]) {
+        if (typeof value === 'string' && value.trim()) {
+          texts.push(value.trim());
+        }
+      }
+    }
+    return texts;
   }
 
   /**

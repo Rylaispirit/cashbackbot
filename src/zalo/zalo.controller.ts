@@ -29,11 +29,15 @@ const WELCOME_MESSAGE = `🎯 Chào mừng bạn đến với ChotDeal!
 
 Bot hoàn tiền cashback cho đơn Shopee, Lazada, Tiki, TikTok Shop, Taobao, 1688, Tmall.
 
-📌 Cách dùng:
+📌 Cách gửi link:
 1. Copy link sản phẩm bất kỳ
-2. Paste vào đây cho bot
+2. Gõ thêm chữ trước URL để Zalo không biến link thành thẻ chia sẻ, ví dụ:
+   link: https://vn.shp.ee/...
+   Tạo link cashback https://shopee.vn/...
 3. Bot trả link cashback — mở link đó để mua
 4. Đơn được duyệt → tiền tự về ví trong bot
+
+⚠️ Không nên gửi mỗi URL trần. Một số bản Zalo sẽ chuyển URL thành thẻ chia sẻ mà bot không đọc được.
 
 🎮 Lệnh hữu ích:
 /balance — xem số dư
@@ -86,6 +90,14 @@ export class ZaloController {
       }
     }
 
+    const isUnsupportedMessage =
+      update.event_name === 'message.unsupported.received';
+    if (isUnsupportedMessage) {
+      this.logger.warn(
+        `[ZALO UNSUPPORTED] payload=${JSON.stringify(update).slice(0, 2000)}`,
+      );
+    }
+
     const message = update?.message;
     if (!message?.from?.id || !message.chat?.id) {
       return { ok: true };
@@ -118,17 +130,20 @@ export class ZaloController {
         chatId,
         text: formUrl
           ? [
-              'Zalo chưa gửi nội dung link này cho bot.',
+              'Zalo đã chuyển link bạn gửi thành "thẻ chia sẻ" mà bot không đọc được.',
               '',
-              'Bạn bấm trang dưới đây, dán link Shopee/Lazada vào đó, ChotDeal sẽ tạo link cashback và gửi lại trong Zalo:',
+              'Cách nhanh nhất: gửi lại theo dạng có chữ trước URL, ví dụ:',
+              'link: https://vn.shp.ee/...',
+              '',
+              'Hoặc bấm trang dưới đây, dán link Shopee/Lazada vào đó, ChotDeal sẽ tạo link cashback và gửi lại trong Zalo:',
               formUrl,
             ].join('\n')
           : [
-              'Mình chưa đọc được link trong tin nhắn này.',
+              'Zalo đã chuyển link bạn gửi thành "thẻ chia sẻ" mà bot không đọc được.',
               '',
-              'Bạn hãy bấm "Sao chép liên kết" rồi dán link dạng chữ vào đây, ví dụ:',
-              'https://shopee.vn/...',
-              'https://www.lazada.vn/...',
+              'Bạn hãy gửi lại theo dạng có chữ trước URL, ví dụ:',
+              'link: https://vn.shp.ee/...',
+              'Tạo link cashback https://www.lazada.vn/...',
             ].join('\n'),
       });
       return { ok: true };
@@ -320,12 +335,20 @@ export class ZaloController {
 
     candidates.push(...this.extractAttachmentTexts(message?.attachments));
 
-    return (
+    const text =
       candidates
         .filter((value): value is string => typeof value === 'string')
         .map((value) => value.trim())
-        .find((value) => value.length > 0) ?? ''
-    );
+        .find((value) => value.length > 0) ?? '';
+    if (text) return text;
+
+    return this.tryExtractEmbeddedUrl(update) ?? '';
+  }
+
+  private tryExtractEmbeddedUrl(update: ZaloUpdate): string | null {
+    const raw = JSON.stringify(update);
+    const match = raw.match(/https?:\/\/[^\s"'<>\\)]+/i);
+    return match?.[0]?.replace(/[.,;:!?)\]]+$/, '') ?? null;
   }
 
   private extractAttachmentTexts(attachments: unknown): string[] {

@@ -32,12 +32,12 @@ Bot hoàn tiền cashback cho đơn Shopee, Lazada, Tiki, TikTok Shop, Taobao, 1
 📌 Cách gửi link:
 1. Copy link sản phẩm bất kỳ
 2. Gõ thêm chữ trước URL để Zalo không biến link thành thẻ chia sẻ, ví dụ:
-   link: https://vn.shp.ee/...
-   Tạo link cashback https://shopee.vn/...
+   link vn.shp.ee/...
+   Tạo link cashback shopee.vn/...
 3. Bot trả link cashback — mở link đó để mua
 4. Đơn được duyệt → tiền tự về ví trong bot
 
-⚠️ Không nên gửi mỗi URL trần. Một số bản Zalo sẽ chuyển URL thành thẻ chia sẻ mà bot không đọc được.
+⚠️ Không nên gửi mỗi URL trần hoặc link có https://. Một số bản Zalo sẽ chuyển URL thành thẻ chia sẻ mà bot không đọc được.
 
 🎮 Lệnh hữu ích:
 /balance — xem số dư
@@ -132,8 +132,8 @@ export class ZaloController {
           ? [
               'Zalo đã chuyển link bạn gửi thành "thẻ chia sẻ" mà bot không đọc được.',
               '',
-              'Cách nhanh nhất: gửi lại theo dạng có chữ trước URL, ví dụ:',
-              'link: https://vn.shp.ee/...',
+              'Cách nhanh nhất: gửi lại và bỏ phần https://, ví dụ:',
+              'link vn.shp.ee/Qbzyvgp9',
               '',
               'Hoặc bấm trang dưới đây, dán link Shopee/Lazada vào đó, ChotDeal sẽ tạo link cashback và gửi lại trong Zalo:',
               formUrl,
@@ -141,9 +141,9 @@ export class ZaloController {
           : [
               'Zalo đã chuyển link bạn gửi thành "thẻ chia sẻ" mà bot không đọc được.',
               '',
-              'Bạn hãy gửi lại theo dạng có chữ trước URL, ví dụ:',
-              'link: https://vn.shp.ee/...',
-              'Tạo link cashback https://www.lazada.vn/...',
+              'Bạn hãy gửi lại và bỏ phần https://, ví dụ:',
+              'link vn.shp.ee/Qbzyvgp9',
+              'Tạo link cashback www.lazada.vn/...',
             ].join('\n'),
       });
       return { ok: true };

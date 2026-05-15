@@ -30,14 +30,12 @@ const WELCOME_MESSAGE = `🎯 Chào mừng bạn đến với ChotDeal!
 Bot hoàn tiền cashback cho đơn Shopee, Lazada, Tiki, TikTok Shop, Taobao, 1688, Tmall.
 
 📌 Cách gửi link:
-1. Copy link sản phẩm bất kỳ
-2. Gõ thêm chữ trước URL để Zalo không biến link thành thẻ chia sẻ, ví dụ:
-   link vn.shp.ee/...
-   Tạo link cashback shopee.vn/...
+1. Copy nguyên link sản phẩm từ Shopee/Lazada/Taobao
+2. Dán vào chat này hoặc gõ /link để mở trang dán link
 3. Bot trả link cashback — mở link đó để mua
 4. Đơn được duyệt → tiền tự về ví trong bot
 
-⚠️ Không nên gửi mỗi URL trần hoặc link có https://. Một số bản Zalo sẽ chuyển URL thành thẻ chia sẻ mà bot không đọc được.
+Nếu Zalo không cho bot đọc link trực tiếp, ChotDeal sẽ gửi trang dán link riêng. Bạn chỉ cần dán nguyên link vừa copy, không cần sửa hay bỏ https://.
 
 🎮 Lệnh hữu ích:
 /balance — xem số dư
@@ -314,13 +312,13 @@ export class ZaloController {
 
     const lines = input.fromUnsupported
       ? [
-          'Zalo đã chuyển link bạn gửi thành "thẻ chia sẻ" mà bot không đọc được.',
+          'Zalo không gửi nội dung link trực tiếp cho bot.',
           '',
-          'Cách ổn định nhất: bấm trang dưới đây, dán link Shopee/Lazada/Taobao vào đó, ChotDeal sẽ tạo link cashback và gửi lại trong Zalo:',
+          'Bấm trang dưới đây, dán nguyên link bạn vừa copy từ Shopee/Lazada/Taobao. Không cần bỏ https://.',
         ]
       : [
-          'Bấm trang dưới đây để dán link sản phẩm.',
-          'Cách này ổn định hơn gửi link trực tiếp trong chat Zalo.',
+          'Bấm trang dưới đây để dán nguyên link sản phẩm.',
+          'Bạn copy sao thì dán vậy, ChotDeal sẽ tự tạo link cashback.',
         ];
 
     if (formUrl) {
@@ -328,8 +326,7 @@ export class ZaloController {
     } else {
       lines.push(
         '',
-        'Hiện chưa tạo được trang dán link. Bạn thử gửi dạng không có https://, ví dụ:',
-        'link vn.shp.ee/Qbzyvgp9',
+        'Hiện chưa tạo được trang dán link. Bạn thử gửi lại nguyên link sản phẩm một lần nữa.',
       );
     }
 
@@ -341,9 +338,15 @@ export class ZaloController {
 
   private isLinkFormRequest(text: string): boolean {
     const normalized = text.trim().toLowerCase();
-    return ['link', 'tao link', 'tạo link', 'lay link', 'lấy link'].includes(
-      normalized,
-    );
+    return [
+      'link',
+      'tao link',
+      'tạo link',
+      'lay link',
+      'lấy link',
+      'dan link',
+      'dán link',
+    ].includes(normalized);
   }
 
   /**

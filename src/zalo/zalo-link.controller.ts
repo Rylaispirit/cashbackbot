@@ -220,7 +220,7 @@ function renderZaloLinkForm(input: {
   <main>
     <div class="pill">ChotDeal x Zalo</div>
     <h1>Dán link để lấy cashback</h1>
-    <p>Zalo đôi khi không gửi link Shopee/Lazada trực tiếp cho bot. Dán link vào đây, ChotDeal sẽ tạo link cashback và gửi kết quả về lại Zalo.</p>
+    <p>Dán nguyên link bạn vừa copy từ Shopee/Lazada/Taobao. Không cần sửa link hay bỏ https://, ChotDeal sẽ tự tạo link cashback và gửi kết quả về lại Zalo.</p>
     ${error}
     <form method="post" action="/api/zalo/link">
       <input type="hidden" name="c" value="${escapeAttr(input.chatId)}">
@@ -228,7 +228,7 @@ function renderZaloLinkForm(input: {
       <input type="hidden" name="t" value="${escapeAttr(input.timestamp)}">
       <input type="hidden" name="s" value="${escapeAttr(input.signature)}">
       <label for="url">Link sản phẩm</label>
-      <textarea id="url" name="url" rows="5" autofocus placeholder="https://vn.shp.ee/...">${escapeHtml(input.value ?? '')}</textarea>
+      <textarea id="url" name="url" rows="5" autofocus placeholder="Dán nguyên link ở đây, ví dụ: https://vn.shp.ee/...">${escapeHtml(input.value ?? '')}</textarea>
       <button type="submit">Tạo link cashback</button>
     </form>
     <small>Hỗ trợ Shopee, Lazada, Tiki, TikTok Shop, Taobao, Tmall và 1688.</small>

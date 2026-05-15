@@ -426,6 +426,13 @@ export class AdminUpdate {
   async onStats(@Ctx() ctx: Context) {
     if (!this.assertAdmin(ctx)) return;
     const s = await this.admin.getStats();
+    const channelLines =
+      s.channelStats.length > 0
+        ? s.channelStats.map(
+            (row) =>
+              `- ${channelLabel(row.channel)}: ${row.linkCount} links | ${row.txApproved} approved / ${row.txPending} pending | ${vnd(row.approvedCashback)}`,
+          )
+        : ['- chưa có link'];
     await ctx.reply(
       [
         '📊 Bot stats',
@@ -436,6 +443,9 @@ export class AdminUpdate {
         `💸 Payouts pending: ${s.payoutPending}`,
         '',
         `Cashback user nhận: ${vnd(s.paidToUsers)}`,
+        '',
+        'Theo kênh:',
+        ...channelLines,
       ].join('\n'),
     );
   }
@@ -455,7 +465,7 @@ export class AdminUpdate {
         ? `${statusIcon(tx.status)} ${tx.orderId} | ${vnd(tx.userShare)}`
         : 'chưa có đơn';
       return [
-        `• ${formatDateTime(link.createdAt)} | ${link.merchant} | ${link.subId}`,
+        `• ${formatDateTime(link.createdAt)} | ${channelLabel(link.channel)} | ${link.merchant} | ${link.subId}`,
         `  ${formatUser(link.user)} | tx:${link._count.transactions} | ${txText}`,
       ];
     });
@@ -504,6 +514,7 @@ export class AdminUpdate {
         '🔎 Link detail',
         '',
         `sub_id: ${link.subId}`,
+        `channel: ${channelLabel(link.channel)}`,
         `merchant: ${link.merchant}`,
         `user: ${formatUser(link.user)}`,
         `created: ${formatDateTime(link.createdAt)}`,
@@ -639,7 +650,7 @@ export class AdminUpdate {
     }
     const lines = list.map(
       (t) =>
-        `• ${t.orderId} | ${t.status} | cashback ${vnd(t.userShare)} | tg:${t.user.telegramId} (@${t.user.username ?? '-'})`,
+        `• ${channelLabel(t.link?.channel)} | ${t.link?.merchant ?? '-'} | ${t.orderId} | ${t.status} | cashback ${vnd(t.userShare)} | ${formatUser(t.user)}`,
     );
     await ctx.reply(['📦 Recent transactions:', '', ...lines].join('\n'));
   }
@@ -843,7 +854,7 @@ export class AdminUpdate {
     const lines = list.map((l) => {
       const subPrefix = l.subId.slice(0, 12);
       const date = new Date(l.createdAt).toLocaleDateString('vi-VN');
-      return `• ${subPrefix}.. | ${l.merchant} | ${date} | tg:${l.user.telegramId} (@${l.user.username ?? '-'})`;
+      return `• ${subPrefix}.. | ${channelLabel(l.channel)} | ${l.merchant} | ${date} | ${formatUser(l.user)}`;
     });
     await ctx.reply(
       [
@@ -1213,16 +1224,24 @@ function statusIcon(s: string): string {
   }
 }
 
+function channelLabel(channel: string | null | undefined): string {
+  if (channel === 'telegram') return 'Telegram';
+  if (channel === 'zalo') return 'Zalo';
+  return channel ? channel : 'Unknown';
+}
+
 function formatUser(u: {
   telegramId: bigint | null;
+  zaloUserId?: string | null;
   username: string | null;
-  firstName: string | null;
-  lastName: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
 }): string {
   const name = [u.firstName ?? '', u.lastName ?? ''].filter(Boolean).join(' ').trim();
   const handle = u.username ? `@${u.username}` : '';
   const tg = u.telegramId ? `tg:${u.telegramId}` : 'tg:-';
-  return [name, handle, tg].filter(Boolean).join(' ');
+  const zalo = u.zaloUserId ? `zalo:${truncate(u.zaloUserId, 12)}` : '';
+  return [name, handle, tg, zalo].filter(Boolean).join(' ');
 }
 
 function truncate(s: string, n: number): string {

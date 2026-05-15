@@ -8,9 +8,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { detectMerchant, networkOf, Merchant, labelMerchant } from './url-detector';
 import { AliboService, type AliboVoucherInfo } from './alibo.service';
 
+export type LinkChannel = 'telegram' | 'zalo';
+
 interface CreateAffiliateLinkInput {
   userId: string;
   originalUrl: string;
+  channel?: LinkChannel;
 }
 
 export interface AffiliateLinkResult {
@@ -59,6 +62,7 @@ export class AffiliateService {
       data: {
         subId,
         userId: input.userId,
+        channel: input.channel ?? 'telegram',
         merchant,
         network,
         originalUrl: input.originalUrl,

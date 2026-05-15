@@ -153,6 +153,7 @@ export class ZaloController {
       const result = await this.affiliate.createAffiliateLink({
         userId: input.userId,
         originalUrl: input.originalUrl,
+        channel: 'zalo',
       });
       const cashbackUrl = isAliboLink
         ? this.buildAliboOpenAppUrl(result.link.subId) ?? result.link.affiliateUrl

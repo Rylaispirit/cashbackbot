@@ -15,6 +15,14 @@ type AliboOrder = {
   saleAmountVnd: number;
 } & Record<string, any>;
 
+type ChannelStatsRow = {
+  channel: string | null;
+  linkCount: number | bigint;
+  txPending: number | bigint;
+  txApproved: number | bigint;
+  approvedCashback: number | bigint | null;
+};
+
 @Injectable()
 export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
@@ -41,6 +49,19 @@ export class AdminService {
       }),
     ]);
 
+    const channelRows = await this.prisma.$queryRaw<ChannelStatsRow[]>`
+      SELECT
+        COALESCE(l."channel", 'unknown') AS "channel",
+        COUNT(DISTINCT l."id") AS "linkCount",
+        COUNT(t."id") FILTER (WHERE t."status" = 'PENDING') AS "txPending",
+        COUNT(t."id") FILTER (WHERE t."status" = 'APPROVED') AS "txApproved",
+        COALESCE(SUM(t."userShare") FILTER (WHERE t."status" = 'APPROVED'), 0) AS "approvedCashback"
+      FROM "links" l
+      LEFT JOIN "transactions" t ON t."linkId" = l."id"
+      GROUP BY COALESCE(l."channel", 'unknown')
+      ORDER BY "linkCount" DESC, "channel" ASC
+    `;
+
     return {
       userCount,
       linkCount,
@@ -48,6 +69,13 @@ export class AdminService {
       txApproved,
       payoutPending,
       paidToUsers: userCashback._sum.userShare ?? 0,
+      channelStats: channelRows.map((row) => ({
+        channel: row.channel ?? 'unknown',
+        linkCount: toNumber(row.linkCount),
+        txPending: toNumber(row.txPending),
+        txApproved: toNumber(row.txApproved),
+        approvedCashback: toNumber(row.approvedCashback),
+      })),
     };
   }
 
@@ -64,7 +92,22 @@ export class AdminService {
     return this.prisma.transaction.findMany({
       orderBy: { createdAt: 'desc' },
       take: limit,
-      include: { user: { select: { telegramId: true, username: true } } },
+      include: {
+        user: {
+          select: {
+            telegramId: true,
+            zaloUserId: true,
+            username: true,
+          },
+        },
+        link: {
+          select: {
+            channel: true,
+            merchant: true,
+            subId: true,
+          },
+        },
+      },
     });
   }
 
@@ -76,6 +119,7 @@ export class AdminService {
         user: {
           select: {
             telegramId: true,
+            zaloUserId: true,
             username: true,
             firstName: true,
             lastName: true,
@@ -101,6 +145,7 @@ export class AdminService {
       user: {
         select: {
           telegramId: true,
+          zaloUserId: true,
           username: true,
           firstName: true,
           lastName: true,
@@ -154,8 +199,10 @@ export class AdminService {
         user: {
           select: {
             telegramId: true,
+            zaloUserId: true,
             username: true,
             firstName: true,
+            lastName: true,
           },
         },
       },
@@ -521,4 +568,9 @@ export class AdminService {
 
 function decimalToString(value: { toString(): string } | null): string | null {
   return value ? value.toString() : null;
+}
+
+function toNumber(value: number | bigint | null | undefined): number {
+  if (typeof value === 'bigint') return Number(value);
+  return value ?? 0;
 }

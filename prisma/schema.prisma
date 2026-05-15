@@ -66,6 +66,7 @@ model Link {
   // sub_id duy nhất gắn vào affiliate URL — dùng để map postback về đúng user/link
   subId        String   @unique
   userId       String
+  channel      String   @default("telegram") // telegram, zalo
   network      String   @default("accesstrade") // accesstrade, shopee_smartlink, ...
   merchant     String // shopee, lazada, tiki, ...
   originalUrl  String   @db.Text
@@ -78,6 +79,7 @@ model Link {
   aliboOrders  AliboOrder[]
 
   @@index([userId])
+  @@index([channel, createdAt])
   @@index([createdAt])
   @@map("links")
 }

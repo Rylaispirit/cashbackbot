@@ -15,35 +15,6 @@ import { HealthController } from './health.controller';
 import { AliboOpenController } from './affiliate/alibo-open.controller';
 import { ZaloModule } from './zalo/zalo.module';
 
-@Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: ['.env'],
-    }),
-    TelegrafModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        token: config.getOrThrow<string>('TELEGRAM_BOT_TOKEN'),
-        middlewares: [adminMenuShortcut(config), session()],
-        // main.ts decides whether to start polling or configure webhooks.
-        launchOptions: false,
-      }),
-    }),
-    PrismaModule,
-    NotificationsModule,
-    UsersModule,
-    AffiliateModule,
-    PayoutsModule,
-    AdminModule,
-    TelegramModule,
-    ZaloModule,
-    PostbackModule,
-  ],
-  controllers: [HealthController, AliboOpenController],
-})
-export class AppModule {}
-
 function adminMenuShortcut(config: ConfigService): MiddlewareFn<Context> {
   const adminIds = new Set(
     config
@@ -56,8 +27,9 @@ function adminMenuShortcut(config: ConfigService): MiddlewareFn<Context> {
 
   return async (ctx, next) => {
     const message = ctx.message as { text?: string } | undefined;
-    const text = message?.text;
-    const command = text?.match(/^\/([a-z0-9_]+)(?:@\w+)?(?:\s|$)/i)?.[1]?.toLowerCase();
+    const command = message?.text
+      ?.match(/^\/([a-z0-9_]+)(?:@\w+)?(?:\s|$)/i)?.[1]
+      ?.toLowerCase();
     if (command !== 'admin') {
       return next();
     }
@@ -110,3 +82,32 @@ function buildAdminMenuMessage(): string {
     '/admin_alibo_match <subId_prefix> <orderId> <commission_report> [sale] [status] - tạo đơn manual',
   ].join('\n');
 }
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env'],
+    }),
+    TelegrafModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        token: config.getOrThrow<string>('TELEGRAM_BOT_TOKEN'),
+        middlewares: [adminMenuShortcut(config), session()],
+        // main.ts decides whether to start polling or configure webhooks.
+        launchOptions: false,
+      }),
+    }),
+    PrismaModule,
+    NotificationsModule,
+    UsersModule,
+    AffiliateModule,
+    PayoutsModule,
+    AdminModule,
+    TelegramModule,
+    PostbackModule,
+    ZaloModule,
+  ],
+  controllers: [HealthController, AliboOpenController],
+})
+export class AppModule {}

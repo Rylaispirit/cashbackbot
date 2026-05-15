@@ -70,6 +70,19 @@ async function bootstrap() {
         return;
       }
 
+      if (
+        isAdminMenuShortcutUpdate(req.body) &&
+        isValidTelegramSecret(req, webhookSecretToken)
+      ) {
+        void handleAdminMenuShortcut(req.body, {
+          botToken: process.env.TELEGRAM_BOT_TOKEN,
+          adminIdsRaw: process.env.TELEGRAM_ADMIN_IDS,
+        })
+          .then(() => res.status(200).json({ ok: true, shortcut: 'admin_menu' }))
+          .catch(next);
+        return;
+      }
+
       if (!webhookHandler) {
         res.status(503).json({ ok: false, error: 'telegram_webhook_not_ready' });
         return;
@@ -237,6 +250,110 @@ function registerTaobaoOpenBridge(expressApp: {
     },
   );
   Logger.log('Taobao open bridge route mounted at /api/open/taobao/:subId', BOOTSTRAP_LOGGER);
+}
+
+function isValidTelegramSecret(req: Request, expected: string): boolean {
+  const received = req.headers['x-telegram-bot-api-secret-token'];
+  return typeof received === 'string' && received === expected;
+}
+
+function isAdminMenuShortcutUpdate(update: unknown): boolean {
+  const message = (update as {
+    message?: {
+      text?: string;
+    };
+  })?.message;
+  const command = message?.text
+    ?.match(/^\/([a-z0-9_]+)(?:@\w+)?(?:\s|$)/i)?.[1]
+    ?.toLowerCase();
+  return command === 'admin';
+}
+
+async function handleAdminMenuShortcut(
+  update: unknown,
+  options: {
+    botToken: string | undefined;
+    adminIdsRaw: string | undefined;
+  },
+): Promise<void> {
+  const message = (update as {
+    message?: {
+      chat?: { id?: string | number };
+      from?: { id?: string | number };
+    };
+  })?.message;
+
+  const chatId = message?.chat?.id;
+  const fromId = message?.from?.id;
+  if (!chatId || !fromId || !options.botToken) return;
+
+  const adminIds = new Set(
+    (options.adminIdsRaw ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  const text = adminIds.has(String(fromId))
+    ? buildAdminMenuMessage()
+    : [
+        'Bạn chưa có quyền dùng lệnh admin trên Telegram.',
+        'Nếu đây là tài khoản admin, hãy kiểm tra TELEGRAM_ADMIN_IDS.',
+      ].join('\n');
+
+  await sendTelegramMessage(options.botToken, chatId, text);
+}
+
+async function sendTelegramMessage(
+  botToken: string,
+  chatId: string | number,
+  text: string,
+): Promise<void> {
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      disable_web_page_preview: true,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Telegram sendMessage failed: HTTP ${res.status}`);
+  }
+}
+
+function buildAdminMenuMessage(): string {
+  return [
+    'Admin commands:',
+    '/admin_stats - tổng quan',
+    '/admin_links - 10 link mới nhất',
+    '/admin_link <sub_id> - chi tiết 1 link',
+    '/admin_recent - 10 đơn gần nhất',
+    '/admin_payouts - list payout pending',
+    '/admin_paid <id> - mark payout đã chuyển',
+    '/admin_cancel <id> - huỷ payout',
+    '/admin_user <telegram_id>',
+    '/admin_block <telegram_id>',
+    '/admin_unblock <telegram_id>',
+    '/admin_broadcast_test <nội dung> - gửi thử cho admin',
+    '/admin_broadcast <nội dung> - gửi thông báo tới toàn bộ user',
+    '/admin_deal_test <url> | <tiêu đề> | <mô tả> - gửi thử deal cho admin',
+    '/admin_deal <url> | <tiêu đề> | <mô tả> - gửi deal tới subscriber',
+    '/admin_deal_send <deal_id> - gửi deal đã tạo từ bản test',
+    '/admin_deals - 10 deal gần nhất',
+    '/admin_deal_subscribers - số người đang bật nhận deal',
+    '/admin_scan_deals [limit] - quét deal Shopee từ Accesstrade',
+    '',
+    'Alibo sync:',
+    '/admin_alibo_sync [days] - sync đơn từ trang Alibo',
+    '/admin_alibo_orders [unmatched|matched|all] - xem đơn Alibo đã sync',
+    '/admin_alibo_order <id> - chi tiết 1 đơn Alibo',
+    '/admin_alibo_match_order <order_prefix> <subId_prefix> [status] [commission_vnd] - match đơn sync vào user',
+    '',
+    'Reconcile alibo:',
+    '/admin_alibo_pending - link Taobao chưa có đơn',
+    '/admin_alibo_match <subId_prefix> <orderId> <commission_report> [sale] [status] - tạo đơn manual',
+  ].join('\n');
 }
 
 bootstrap().catch((err) => {

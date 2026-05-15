@@ -186,11 +186,12 @@ export class TelegramUpdate {
       const link = result.link;
       const aliboOpenAppUrl =
         isAliboLink ? this.buildAliboOpenAppUrl(link.subId) : null;
-      const cashbackUrl = aliboOpenAppUrl ?? link.affiliateUrl;
+      const cashbackUrl = isAliboLink
+        ? aliboOpenAppUrl ?? link.affiliateUrl
+        : this.buildOpenLinkUrl(link.subId) ?? link.affiliateUrl;
       const voucherMessage = isAliboLink
         ? this.buildAliboVoucherMessage(result.voucherInfo)
         : null;
-
       await ctx.reply(
         [
           '✅ Link cashback của bạn đã sẵn sàng',
@@ -431,6 +432,9 @@ export class TelegramUpdate {
       const voucherMessage = isAliboLink
         ? this.buildAliboVoucherMessage(result.voucherInfo)
         : null;
+      const openLinkUrl = !isAliboLink
+        ? this.buildOpenLinkUrl(link.subId) ?? link.affiliateUrl
+        : null;
       const replyText =
         isAliboLink && aliboOpenAppUrl
           ? [
@@ -452,7 +456,7 @@ export class TelegramUpdate {
               `🛒 Sàn: ${labelMerchant(detected.merchant)}`,
               '',
               '🔗 Link cashback của bạn:',
-              link.affiliateUrl,
+              openLinkUrl ?? link.affiliateUrl,
               ...(voucherMessage ? ['', voucherMessage] : []),
               '',
               'Bạn cần mở đúng link vừa tạo ở trên để mua hàng thì bot mới tracking được cashback.',
@@ -538,6 +542,24 @@ export class TelegramUpdate {
     try {
       const base = new URL(publicBaseUrl);
       base.pathname = `/api/open/taobao/${encodeURIComponent(subId)}`;
+      base.search = '';
+      base.hash = '';
+      return base.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  private buildOpenLinkUrl(subId: string): string | null {
+    const publicBaseUrl =
+      this.config.get<string>('TAOBAO_OPEN_BASE_URL')?.trim() ||
+      this.config.get<string>('PUBLIC_BASE_URL')?.trim() ||
+      readRuntimePublicBaseUrl();
+    if (!publicBaseUrl) return null;
+
+    try {
+      const base = new URL(publicBaseUrl);
+      base.pathname = `/api/open/link/${encodeURIComponent(subId)}`;
       base.search = '';
       base.hash = '';
       return base.toString();

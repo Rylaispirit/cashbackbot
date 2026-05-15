@@ -96,10 +96,10 @@ async function bootstrap() {
     Logger.log(`Accesstrade postback URL: ${postbackUrl}`, BOOTSTRAP_LOGGER);
 
     afterListen = async () => {
-      webhookHandler = await bot.createWebhook({
+      webhookHandler = await createTelegramWebhookWithRetry(bot, {
         domain: publicBaseUrl,
         path: webhookPath,
-        secret_token: webhookSecretToken,
+        secretToken: webhookSecretToken,
       });
       Logger.log('Telegram webhook is active', BOOTSTRAP_LOGGER);
     };
@@ -124,6 +124,66 @@ async function bootstrap() {
   registerPollingShutdown(bot);
   Logger.log(`Telegram updates mode: ${updatesMode}`, BOOTSTRAP_LOGGER);
   Logger.log('Telegram polling is active', BOOTSTRAP_LOGGER);
+}
+
+async function createTelegramWebhookWithRetry(
+  bot: Telegraf<Context>,
+  options: { domain: string; path: string; secretToken: string },
+): Promise<TelegramWebhookHandler> {
+  const maxAttempts = 5;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await bot.createWebhook({
+        domain: options.domain,
+        path: options.path,
+        secret_token: options.secretToken,
+      });
+    } catch (err) {
+      lastError = err;
+      const retryAfterSeconds = getTelegramRetryAfterSeconds(err);
+      const delayMs = retryAfterSeconds
+        ? (retryAfterSeconds + 1) * 1000
+        : attempt * 1000;
+
+      if (attempt >= maxAttempts) break;
+
+      Logger.warn(
+        `Telegram webhook setup attempt ${attempt}/${maxAttempts} failed: ${
+          (err as Error).message
+        }. Retrying in ${delayMs}ms`,
+        BOOTSTRAP_LOGGER,
+      );
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Telegram webhook setup failed');
+}
+
+function getTelegramRetryAfterSeconds(err: unknown): number | null {
+  const maybe = err as {
+    parameters?: { retry_after?: number };
+    response?: { parameters?: { retry_after?: number } };
+    message?: string;
+  };
+  const fromParameters =
+    maybe.parameters?.retry_after ?? maybe.response?.parameters?.retry_after;
+  if (typeof fromParameters === 'number' && Number.isFinite(fromParameters)) {
+    return fromParameters;
+  }
+
+  const match = maybe.message?.match(/retry after (\d+)/i);
+  if (!match?.[1]) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function resolveTelegramUpdatesMode(

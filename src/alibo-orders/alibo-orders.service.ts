@@ -9,6 +9,7 @@ import type { BrowserContextOptions, Page } from 'playwright';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { extractAlibabaItemId } from '../affiliate/url-detector';
+import { extractAliboEncodedId, titleSimilarity } from '../affiliate/product-metadata';
 
 export type AliboOrder = {
   id: string;
@@ -723,209 +724,150 @@ export class AliboOrdersService {
     if (!order.itemLink) {
       return { order, itemId: null, confidence: 'LOW', reason: 'no itemLink' };
     }
-    const itemId = extractAlibabaItemId(order.itemLink);
-    if (!itemId) {
-      return { order, itemId: null, confidence: 'LOW', reason: 'cannot extract itemId from itemLink' };
-    }
     if (!order.paidAt) {
-      return { order, itemId, confidence: 'LOW', reason: 'no paidAt — cannot direction-check' };
+      return { order, itemId: null, confidence: 'LOW', reason: 'no paidAt — cannot direction-check' };
     }
     if (!Number.isFinite(order.commissionVnd) || order.commissionVnd <= 0) {
-      return { order, itemId, confidence: 'LOW', reason: `commission=${order.commissionVnd} — wait for settled commission` };
+      return { order, itemId: null, confidence: 'LOW', reason: `commission=${order.commissionVnd} — wait for settled commission` };
     }
+
+    const orderItemId = extractAlibabaItemId(order.itemLink); // numeric (or null if encoded)
+    const orderAliboEncodedId = extractAliboEncodedId(order.itemLink);
 
     const since = new Date(order.paidAt.getTime() - windowHours * 3600_000);
     const tolerance = toleranceMinutes * 60_000;
     const upper = new Date(order.paidAt.getTime() + tolerance);
 
-    const found = await this.prisma.link.findMany({
-      where: {
-        network: 'alibo',
-        originalUrl: { contains: itemId },
-        createdAt: { gte: since, lte: upper },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
+    const linkSummary = (link: any) => ({
+      id: link.id,
+      subId: link.subId,
+      userId: link.userId,
+      createdAt: link.createdAt,
+      originalUrl: link.originalUrl,
     });
 
-    if (found.length === 0) {
-      return { order, itemId, confidence: 'LOW', reason: 'no Link with itemId in window' };
+    // === Tier 3 — alibo encoded id exact match (zero ambiguity) ===
+    if (orderAliboEncodedId) {
+      const byEncoded: any[] = await (this.prisma as any).link.findMany({
+        where: {
+          network: 'alibo',
+          aliboEncodedId: orderAliboEncodedId,
+          createdAt: { gte: since, lte: upper },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      if (byEncoded.length === 1) {
+        return {
+          order,
+          itemId: orderItemId,
+          confidence: 'HIGH',
+          reason: `Tier 3: aliboEncodedId exact match (${orderAliboEncodedId})`,
+          link: linkSummary(byEncoded[0]),
+        };
+      }
+      if (byEncoded.length > 1) {
+        return {
+          order,
+          itemId: orderItemId,
+          confidence: 'LOW',
+          reason: `Tier 3 ambiguous: ${byEncoded.length} Links share encoded id`,
+          alternatives: byEncoded.length,
+        };
+      }
     }
-    if (found.length > 1) {
-      return {
-        order,
-        itemId,
-        confidence: 'LOW',
-        reason: `${found.length} Link candidates — admin must pick`,
-        alternatives: found.length,
-      };
+
+    // === Tier 1 — numeric itemId match (canonicalItemId OR originalUrl contains) ===
+    if (orderItemId) {
+      const byItemId: any[] = await (this.prisma as any).link.findMany({
+        where: {
+          network: 'alibo',
+          OR: [
+            { canonicalItemId: orderItemId },
+            { originalUrl: { contains: orderItemId } },
+          ],
+          createdAt: { gte: since, lte: upper },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      if (byItemId.length === 1) {
+        const link = byItemId[0];
+        const strict = link.createdAt.getTime() <= order.paidAt.getTime();
+        return {
+          order,
+          itemId: orderItemId,
+          confidence: strict ? 'HIGH' : 'MEDIUM',
+          reason: strict
+            ? `Tier 1: itemId match, link.createdAt <= paidAt`
+            : `Tier 1: itemId match but link.createdAt > paidAt by ${Math.round((link.createdAt.getTime() - order.paidAt.getTime()) / 60_000)}min (timezone slack)`,
+          link: linkSummary(link),
+        };
+      }
+      if (byItemId.length > 1) {
+        return {
+          order,
+          itemId: orderItemId,
+          confidence: 'LOW',
+          reason: `Tier 1 ambiguous: ${byItemId.length} Links with itemId=${orderItemId} in window`,
+          alternatives: byItemId.length,
+        };
+      }
     }
-    const link = found[0]!;
-    const strict = link.createdAt.getTime() <= order.paidAt.getTime();
+
+    // === Tier 2 — fuzzy title match (alibo's itemTitle vs Link.productTitle) ===
+    if (order.itemTitle) {
+      const titleCandidates: any[] = await (this.prisma as any).link.findMany({
+        where: {
+          network: 'alibo',
+          productTitle: { not: null },
+          createdAt: { gte: since, lte: upper },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50, // wider net for fuzzy scoring
+      });
+      const scored = titleCandidates
+        .map((link) => ({
+          link,
+          score: titleSimilarity(order.itemTitle ?? '', link.productTitle ?? ''),
+        }))
+        .filter((c) => c.score >= 0.7)
+        .sort((a, b) => b.score - a.score);
+
+      if (scored.length === 1 || (scored.length > 1 && scored[0].score >= scored[1].score + 0.15)) {
+        const best = scored[0];
+        const strict = best.link.createdAt.getTime() <= order.paidAt.getTime();
+        // Title-only match never auto-applies — protect against SKU/name collisions.
+        // Admin must review via /admin_alibo_orders unmatched.
+        const conf: AliboMatchConfidence = 'MEDIUM';
+        return {
+          order,
+          itemId: orderItemId,
+          confidence: conf,
+          reason: `Tier 2: title similarity ${(best.score * 100).toFixed(0)}% — MEDIUM only (review required, never auto-credit)`,
+          link: linkSummary(best.link),
+        };
+      }
+      if (scored.length > 1) {
+        return {
+          order,
+          itemId: orderItemId,
+          confidence: 'LOW',
+          reason: `Tier 2 ambiguous: top ${scored.length} title scores ${scored
+            .slice(0, 3)
+            .map((c) => (c.score * 100).toFixed(0) + '%')
+            .join(',')}`,
+          alternatives: scored.length,
+        };
+      }
+    }
+
     return {
       order,
-      itemId,
-      confidence: strict ? 'HIGH' : 'MEDIUM',
-      reason: strict
-        ? `1 candidate, link.createdAt ${link.createdAt.toISOString()} <= paidAt ${order.paidAt.toISOString()}`
-        : `1 candidate but link.createdAt > paidAt by ${Math.round((link.createdAt.getTime() - order.paidAt.getTime()) / 60_000)}min (timezone slack)`,
-      link: {
-        id: link.id,
-        subId: link.subId,
-        userId: link.userId,
-        createdAt: link.createdAt,
-        originalUrl: link.originalUrl,
-      },
+      itemId: orderItemId,
+      confidence: 'LOW',
+      reason: 'no match across Tier 1/2/3 (no canonical itemId, no title match, no alibo encoded id)',
     };
-  }
-
-  /**
-   * Legacy implementation kept temporarily for diff safety; do not call.
-   * The active matcher above returns AliboMatchApplyResult and handles amount reconciliation.
-   */
-  private async applyMatchLegacy(
-    order: AliboOrder,
-    link: { id: string; subId: string; userId: string },
-  ): Promise<'matched' | 'status_updated' | 'skipped'> {
-    if (!Number.isFinite(order.commissionVnd) || order.commissionVnd <= 0) {
-      return 'skipped';
-    }
-    const defaultRate = clampInt(
-      parseInt(this.config.get<string>('ALIBO_DEFAULT_USER_RATE') ?? '60', 10) || 60,
-      0,
-      100,
-    );
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: link.userId },
-    });
-    const rate = user.commissionRate ?? defaultRate;
-    const grossCommission = order.commissionVnd;
-    const userShare = Math.floor((grossCommission * rate) / 100);
-    const ownerShare = grossCommission - userShare;
-    const externalTxId = `alibo_${order.lineKey}`;
-
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.transaction.findUnique({ where: { externalTxId } });
-
-      if (existing && existing.status === order.status) {
-        // Idempotent: only ensure AliboOrder is marked MATCHED with the Transaction
-        await (tx as any).aliboOrder.update({
-          where: { id: order.id },
-          data: {
-            matchStatus: 'MATCHED',
-            matchedSubId: link.subId,
-            matchedLinkId: link.id,
-            transactionId: existing.id,
-            matchedAt: order.matchedAt ?? new Date(),
-          },
-        });
-        return 'skipped' as const;
-      }
-
-      if (existing) {
-        // Status changed (PENDING <-> APPROVED/REJECTED/CANCELLED) — reconcile balance
-        // 1) reverse previous effect
-        if (existing.status === TransactionStatus.PENDING) {
-          await tx.user.update({
-            where: { id: existing.userId },
-            data: { balancePending: { decrement: existing.userShare } },
-          });
-        } else if (existing.status === TransactionStatus.APPROVED) {
-          await tx.user.update({
-            where: { id: existing.userId },
-            data: { balanceAvail: { decrement: existing.userShare } },
-          });
-        }
-        // 2) apply new effect (with potentially updated commission)
-        if (order.status === TransactionStatus.PENDING) {
-          await tx.user.update({
-            where: { id: link.userId },
-            data: { balancePending: { increment: userShare } },
-          });
-        } else if (order.status === TransactionStatus.APPROVED) {
-          await tx.user.update({
-            where: { id: link.userId },
-            data: { balanceAvail: { increment: userShare } },
-          });
-        }
-        // 3) update Transaction
-        await tx.transaction.update({
-          where: { id: existing.id },
-          data: {
-            status: order.status,
-            grossCommission,
-            userShare,
-            ownerShare,
-            saleAmount: order.saleAmountVnd,
-            approvedAt: order.status === TransactionStatus.APPROVED ? new Date() : null,
-            rawPayload: {
-              source: 'alibo_automatch_status_update',
-              aliboOrderId: order.id,
-              lineKey: order.lineKey,
-              statusRaw: order.statusRaw,
-              previousStatus: existing.status,
-            },
-          },
-        });
-        await (tx as any).aliboOrder.update({
-          where: { id: order.id },
-          data: {
-            matchStatus: 'MATCHED',
-            matchedSubId: link.subId,
-            matchedLinkId: link.id,
-            transactionId: existing.id,
-            matchedAt: new Date(),
-          },
-        });
-        return 'status_updated' as const;
-      }
-
-      // No existing Transaction — create fresh
-      const newTx = await tx.transaction.create({
-        data: {
-          externalTxId,
-          orderId: order.orderId,
-          subId: link.subId,
-          userId: link.userId,
-          linkId: link.id,
-          saleAmount: order.saleAmountVnd,
-          grossCommission,
-          userShare,
-          ownerShare,
-          status: order.status,
-          rawPayload: {
-            source: 'alibo_automatch_strategy_b',
-            aliboOrderId: order.id,
-            lineKey: order.lineKey,
-            statusRaw: order.statusRaw,
-          },
-          approvedAt:
-            order.status === TransactionStatus.APPROVED ? new Date() : null,
-        },
-      });
-      if (order.status === TransactionStatus.PENDING) {
-        await tx.user.update({
-          where: { id: link.userId },
-          data: { balancePending: { increment: userShare } },
-        });
-      } else if (order.status === TransactionStatus.APPROVED) {
-        await tx.user.update({
-          where: { id: link.userId },
-          data: { balanceAvail: { increment: userShare } },
-        });
-      }
-      await (tx as any).aliboOrder.update({
-        where: { id: order.id },
-        data: {
-          matchStatus: 'MATCHED',
-          matchedSubId: link.subId,
-          matchedLinkId: link.id,
-          transactionId: newTx.id,
-          matchedAt: new Date(),
-        },
-      });
-      return 'matched' as const;
-    });
   }
 
   private normalizeRow(row: AliboRawOrder): NormalizedAliboOrder | null {

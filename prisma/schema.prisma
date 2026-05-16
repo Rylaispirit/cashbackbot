@@ -71,6 +71,15 @@ model Link {
   merchant     String // shopee, lazada, tiki, ...
   originalUrl  String   @db.Text
   affiliateUrl String   @db.Text
+  // Canonical URL after resolving short URL (e.tb.cn → item.taobao.com/item.htm?id=...)
+  canonicalUrl String?  @db.Text
+  // Numeric itemId extracted from canonicalUrl (indexed for auto-match)
+  canonicalItemId String?
+  // Product metadata captured from alibo's /coupon/ API response at link creation
+  productTitle String?  @db.Text
+  // Encoded id from alibo's response URL (uland.taobao.com/item/edetail?id=XXX) — Tier 3
+  aliboEncodedId String?
+  aliboMobileDeepLink String? @db.Text
   clickedAt    DateTime?
   createdAt    DateTime @default(now())
 
@@ -81,6 +90,8 @@ model Link {
   @@index([userId])
   @@index([channel, createdAt])
   @@index([createdAt])
+  @@index([canonicalItemId])
+  @@index([aliboEncodedId])
   @@map("links")
 }
 

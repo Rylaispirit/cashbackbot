@@ -5,8 +5,15 @@ import { Link } from '@prisma/client';
 import axios from 'axios';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { detectMerchant, networkOf, Merchant, labelMerchant } from './url-detector';
+import {
+  detectMerchant,
+  networkOf,
+  Merchant,
+  labelMerchant,
+  extractAlibabaItemId,
+} from './url-detector';
 import { AliboService, type AliboVoucherInfo } from './alibo.service';
+import { resolveCanonicalUrl, extractAliboEncodedId } from './product-metadata';
 
 export type LinkChannel = 'telegram' | 'zalo';
 
@@ -58,6 +65,39 @@ export class AffiliateService {
         network,
       ));
 
+    // === Tier 1-3 product metadata enrichment (alibo only) ===
+    // Captured at link creation so auto-match can pair alibo orders back to user/link.
+    let canonicalUrl: string | null = null;
+    let canonicalItemId: string | null = null;
+    let productTitle: string | null = null;
+    let aliboEncodedId: string | null = null;
+    let aliboMobileDeepLink: string | null = null;
+    if (network === 'alibo') {
+      // Tier 1: resolve short URL (e.tb.cn / tb.cn) to canonical
+      try {
+        canonicalUrl = await resolveCanonicalUrl(input.originalUrl).catch(() => null);
+      } catch {
+        canonicalUrl = null;
+      }
+      canonicalItemId = canonicalUrl ? extractAlibabaItemId(canonicalUrl) : null;
+      if (!canonicalItemId) {
+        // Fallback: original URL might already be canonical
+        canonicalItemId = extractAlibabaItemId(input.originalUrl);
+      }
+      // Tier 2: title/image from alibo's /coupon/ response (already captured by AliboBrowserService)
+      productTitle = aliboLink?.voucherInfo?.title ?? null;
+      // Tier 3: encoded id from alibo's response. Many alibo responses use
+      // s.click.taobao.com for affiliateUrl but encode the real product id inside
+      // mobileDeepLink (taobao://item.taobao.com/...) or voucher object. Try both.
+      aliboMobileDeepLink = aliboLink?.mobileDeepLink ?? null;
+      aliboEncodedId = aliboLink
+        ? extractAliboEncodedId(aliboLink.affiliateUrl) ??
+          (aliboLink.mobileDeepLink
+            ? extractAliboEncodedId(aliboLink.mobileDeepLink)
+            : null)
+        : null;
+    }
+
     const link = await this.prisma.link.create({
       data: {
         subId,
@@ -67,6 +107,11 @@ export class AffiliateService {
         network,
         originalUrl: input.originalUrl,
         affiliateUrl,
+        canonicalUrl,
+        canonicalItemId,
+        productTitle,
+        aliboEncodedId,
+        aliboMobileDeepLink,
       },
     });
 

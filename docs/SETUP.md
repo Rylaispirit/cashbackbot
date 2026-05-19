@@ -121,6 +121,7 @@ Ghi chú:
 - Postback thật của Accesstrade hiện dùng `transaction_id`, `utm_source`, `reward`, `product_price`, `status`, `is_confirmed` và thường không gửi `signature`.
 - Bot chỉ mở cashback cho sàn có campaign ID verified. Hiện Shopee có campaign mặc định trong code.
 - Muốn bật Lazada, cần lấy đúng campaign ID Lazada Việt Nam trong tài khoản đối tác rồi điền `ACCESSTRADE_CAMPAIGN_ID_LAZADA` trên Railway.
+- TikTok Shop CPS không dùng `Product Link`/link rút gọn thường. Bot dùng Product Feeds API v2 (`/v2/tiktokshop_product_feeds/create_link`) theo hướng dẫn Accesstrade để tracking được ghi nhận.
 - nếu chưa có `campaign_id`, bot vẫn fallback về deeplink template nên không chặn launch
 
 ## 6. Test postback local

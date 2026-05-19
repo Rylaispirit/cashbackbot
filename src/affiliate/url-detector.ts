@@ -32,7 +32,11 @@ const MERCHANT_PATTERNS: Array<{ merchant: Merchant; patterns: RegExp[] }> = [
   },
   {
     merchant: 'tiktok_shop',
-    patterns: [/(^|\.)tiktok\.com\/.*\/product/i, /(^|\.)vt\.tiktok\.com/i],
+    patterns: [
+      /(^|\.)tiktok\.com\/.*\/product/i,
+      /(^|\.)shop\.tiktok\.com\/.*\/product/i,
+      /(^|\.)vt\.tiktok\.com/i,
+    ],
   },
   // === Trung Quốc — qua alibo.vn ===
   {
@@ -63,6 +67,7 @@ const SUPPORTED_BARE_HOSTS = [
   'lzd.co',
   'tiki.vn',
   'tiktok.com',
+  'shop.tiktok.com',
   'vt.tiktok.com',
   'taobao.com',
   'tb.cn',

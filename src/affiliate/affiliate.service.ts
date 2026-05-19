@@ -177,6 +177,10 @@ export class AffiliateService {
       return null;
     }
 
+    if (merchant === 'tiktok_shop') {
+      return this.createTikTokShopFeedLinkViaApi(originalUrl, subId, token);
+    }
+
     const campaignId = this.getCampaignId(merchant);
     if (!campaignId) {
       this.logger.warn(
@@ -219,6 +223,53 @@ export class AffiliateService {
       } catch (err) {
         this.logger.warn(
           `AT API failed for ${merchant} attempt=${attempt}/${maxAttempts}: ${
+            (err as Error).message
+          }`,
+        );
+      }
+    }
+
+    return null;
+  }
+
+  private async createTikTokShopFeedLinkViaApi(
+    originalUrl: string,
+    subId: string,
+    token: string,
+  ): Promise<string | null> {
+    const endpoint =
+      this.config.get<string>('ACCESSTRADE_TIKTOK_CREATE_LINK_URL')?.trim() ??
+      'https://api.accesstrade.vn/v2/tiktokshop_product_feeds/create_link';
+    const maxAttempts = this.getAccesstradeApiAttempts();
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const res = await axios.post(
+          endpoint,
+          {
+            product_url: originalUrl,
+            sub1: subId,
+            utm_source: subId,
+          },
+          {
+            headers: {
+              Authorization: `Token ${token}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 30_000,
+          },
+        );
+
+        const data = res.data?.data;
+        const shortUrl: string | undefined = data?.aff_short_url ?? data?.aff_url;
+        if (shortUrl) return shortUrl;
+
+        this.logger.warn(
+          `AT TikTok Feed API returned no affiliate link attempt=${attempt}/${maxAttempts}`,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `AT TikTok Feed API failed attempt=${attempt}/${maxAttempts}: ${
             (err as Error).message
           }`,
         );
